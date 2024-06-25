@@ -130,7 +130,9 @@ func TestEncodeAttributes(t *testing.T) {
 		"raw": {
 			mappingMode: MappingRaw,
 			want: func() objmodel.Document {
-				return objmodel.DocumentFromAttributes(attributes)
+				doc := objmodel.Document{}
+				doc.AddAttributes("", attributes)
+				return doc
 			},
 		},
 		"none": {
@@ -361,13 +363,13 @@ func TestEncodeLogECSMode(t *testing.T) {
 		"kubernetes.pod.name":        "opentelemetry-pod-autoconf",
 		"kubernetes.pod.uid":         "275ecb36-5aa8-4c2a-9c47-d8bb681b9aff",
 		"kubernetes.deployment.name": "coredns",
+		"container.image.tag":        []any{"v3.4.0"},
 	})
 	require.NoError(t, err)
 
 	expectedDoc := objmodel.Document{}
 	expectedDoc.AddAttributes("", expectedDocFields)
 	expectedDoc.AddTimestamp("@timestamp", observedTimestamp)
-	expectedDoc.Add("container.image.tag", objmodel.ArrValue(objmodel.StringValue("v3.4.0")))
 
 	doc.Sort()
 	expectedDoc.Sort()

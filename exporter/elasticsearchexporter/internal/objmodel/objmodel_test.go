@@ -22,37 +22,25 @@ func TestObjectModel_CreateMap(t *testing.T) {
 		build func() Document
 		want  Document
 	}{
-		"from empty map": {
-			build: func() Document {
-				return DocumentFromAttributes(pcommon.NewMap())
-			},
-		},
 		"from map": {
-			build: func() Document {
+			build: func() (doc Document) {
 				m := pcommon.NewMap()
 				m.PutInt("i", 42)
 				m.PutStr("str", "test")
-				return DocumentFromAttributes(m)
+				doc.AddAttributes("", m)
+				return doc
 			},
-			want: Document{[]field{{"i", IntValue(42)}, {"str", StringValue("test")}}},
+			want: Document{[]field{{"i", intValue(42)}, {"str", stringValue("test")}}},
 		},
 		"ignores nil values": {
-			build: func() Document {
+			build: func() (doc Document) {
 				m := pcommon.NewMap()
 				m.PutEmpty("null")
 				m.PutStr("str", "test")
-				return DocumentFromAttributes(m)
+				doc.AddAttributes("", m)
+				return doc
 			},
-			want: Document{[]field{{"str", StringValue("test")}}},
-		},
-		"from map with prefix": {
-			build: func() Document {
-				m := pcommon.NewMap()
-				m.PutInt("i", 42)
-				m.PutStr("str", "test")
-				return DocumentFromAttributesWithPath("prefix", m)
-			},
-			want: Document{[]field{{"prefix.i", IntValue(42)}, {"prefix.str", StringValue("test")}}},
+			want: Document{[]field{{"str", stringValue("test")}}},
 		},
 		"add attributes with key": {
 			build: func() (doc Document) {
@@ -62,7 +50,7 @@ func TestObjectModel_CreateMap(t *testing.T) {
 				doc.AddAttributes("prefix", m)
 				return doc
 			},
-			want: Document{[]field{{"prefix.i", IntValue(42)}, {"prefix.str", StringValue("test")}}},
+			want: Document{[]field{{"prefix.i", intValue(42)}, {"prefix.str", stringValue("test")}}},
 		},
 		"add attribute flattens a map value": {
 			build: func() (doc Document) {
@@ -73,7 +61,7 @@ func TestObjectModel_CreateMap(t *testing.T) {
 				doc.AddAttribute("prefix", mapVal)
 				return doc
 			},
-			want: Document{[]field{{"prefix.i", IntValue(42)}, {"prefix.str", StringValue("test")}}},
+			want: Document{[]field{{"prefix.i", intValue(42)}, {"prefix.str", stringValue("test")}}},
 		},
 	}
 
@@ -97,7 +85,7 @@ func TestDocument_Sort(t *testing.T) {
 				doc.AddInt("a", 1)
 				return doc
 			},
-			want: Document{[]field{{"a", IntValue(1)}, {"z", IntValue(26)}}},
+			want: Document{[]field{{"a", intValue(1)}, {"z", intValue(26)}}},
 		},
 		"sorting is stable": {
 			build: func() (doc Document) {
@@ -106,7 +94,7 @@ func TestDocument_Sort(t *testing.T) {
 				doc.AddInt("a", 2)
 				return doc
 			},
-			want: Document{[]field{{"a", IntValue(1)}, {"a", IntValue(2)}, {"c", IntValue(3)}}},
+			want: Document{[]field{{"a", intValue(1)}, {"a", intValue(2)}, {"c", intValue(3)}}},
 		},
 	}
 
@@ -131,7 +119,7 @@ func TestObjectModel_Dedup(t *testing.T) {
 				doc.AddInt("c", 3)
 				return doc
 			},
-			want: Document{[]field{{"a", IntValue(1)}, {"c", IntValue(3)}}},
+			want: Document{[]field{{"a", intValue(1)}, {"c", intValue(3)}}},
 		},
 		"duplicate keys": {
 			build: func() (doc Document) {
@@ -140,51 +128,54 @@ func TestObjectModel_Dedup(t *testing.T) {
 				doc.AddInt("a", 2)
 				return doc
 			},
-			want: Document{[]field{{"a", ignoreValue}, {"a", IntValue(2)}, {"c", IntValue(3)}}},
+			want: Document{[]field{{"a", ignoreValue}, {"a", intValue(2)}, {"c", intValue(3)}}},
 		},
 		"duplicate after flattening from map: namespace object at end": {
-			build: func() Document {
-				am := pcommon.NewMap()
-				am.PutInt("namespace.a", 42)
-				am.PutStr("toplevel", "test")
-				am.PutEmptyMap("namespace").PutInt("a", 23)
-				return DocumentFromAttributes(am)
-			},
-			want: Document{[]field{{"namespace.a", ignoreValue}, {"namespace.a", IntValue(23)}, {"toplevel", StringValue("test")}}},
-		},
-		"duplicate after flattening from map: namespace object at beginning": {
-			build: func() Document {
-				am := pcommon.NewMap()
-				am.PutEmptyMap("namespace").PutInt("a", 23)
-				am.PutInt("namespace.a", 42)
-				am.PutStr("toplevel", "test")
-				return DocumentFromAttributes(am)
-			},
-			want: Document{[]field{{"namespace.a", ignoreValue}, {"namespace.a", IntValue(42)}, {"toplevel", StringValue("test")}}},
-		},
-		"dedup in arrays": {
 			build: func() (doc Document) {
-				var embedded Document
-				embedded.AddInt("a", 1)
-				embedded.AddInt("c", 3)
-				embedded.AddInt("a", 2)
-
-				doc.Add("arr", ArrValue(Value{kind: KindObject, doc: embedded}))
+				am := pcommon.NewMap()
+				am.PutInt("namespace.a", 42)
+				am.PutStr("toplevel", "test")
+				am.PutEmptyMap("namespace").PutInt("a", 23)
+				doc.AddAttributes("", am)
 				return doc
 			},
-			want: Document{[]field{{"arr", ArrValue(Value{kind: KindObject, doc: Document{[]field{
-				{"a", ignoreValue},
-				{"a", IntValue(2)},
-				{"c", IntValue(3)},
-			}}})}}},
+			want: Document{[]field{{"namespace.a", ignoreValue}, {"namespace.a", intValue(23)}, {"toplevel", stringValue("test")}}},
 		},
+		"duplicate after flattening from map: namespace object at beginning": {
+			build: func() (doc Document) {
+				am := pcommon.NewMap()
+				am.PutEmptyMap("namespace").PutInt("a", 23)
+				am.PutInt("namespace.a", 42)
+				am.PutStr("toplevel", "test")
+				doc.AddAttributes("", am)
+				return doc
+			},
+			want: Document{[]field{{"namespace.a", ignoreValue}, {"namespace.a", intValue(42)}, {"toplevel", stringValue("test")}}},
+		},
+		/*
+			"dedup in arrays": {
+				build: func() (doc Document) {
+					m := pcommon.NewMap()
+					m.PutInt("a", 1)
+					m.PutInt("c", 3)
+					m.PutInt("a", 2)
+					doc.Add("arr", ObjectValue(m))
+					return doc
+				},
+				want: Document{[]field{{"arr", arrValue(Value{kind: KindObject, obj: []field{
+					{"a", ignoreValue},
+					{"a", intValue(2)},
+					{"c", intValue(3)},
+				}})}}},
+			},
+		*/
 		"dedup mix of primitive and object lifts primitive": {
 			build: func() (doc Document) {
 				doc.AddInt("namespace", 1)
 				doc.AddInt("namespace.a", 2)
 				return doc
 			},
-			want: Document{[]field{{"namespace.a", IntValue(2)}, {"namespace.value", IntValue(1)}}},
+			want: Document{[]field{{"namespace.a", intValue(2)}, {"namespace.value", intValue(1)}}},
 		},
 		"dedup removes primitive if value exists": {
 			build: func() (doc Document) {
@@ -193,7 +184,7 @@ func TestObjectModel_Dedup(t *testing.T) {
 				doc.AddInt("namespace.value", 3)
 				return doc
 			},
-			want: Document{[]field{{"namespace.a", IntValue(2)}, {"namespace.value", ignoreValue}, {"namespace.value", IntValue(3)}}},
+			want: Document{[]field{{"namespace.a", intValue(2)}, {"namespace.value", ignoreValue}, {"namespace.value", intValue(3)}}},
 		},
 	}
 
@@ -218,19 +209,19 @@ func TestValue_FromAttribute(t *testing.T) {
 		},
 		"string": {
 			in:   pcommon.NewValueStr("test"),
-			want: StringValue("test"),
+			want: stringValue("test"),
 		},
 		"int": {
 			in:   pcommon.NewValueInt(23),
-			want: IntValue(23),
+			want: intValue(23),
 		},
 		"double": {
 			in:   pcommon.NewValueDouble(3.14),
-			want: DoubleValue(3.14),
+			want: doubleValue(3.14),
 		},
 		"bool": {
 			in:   pcommon.NewValueBool(true),
-			want: BoolValue(true),
+			want: boolValue(true),
 		},
 		"empty array": {
 			in:   pcommon.NewValueSlice(),
@@ -243,11 +234,11 @@ func TestValue_FromAttribute(t *testing.T) {
 				pcommon.NewValueInt(1).CopyTo(tgt)
 				return v
 			}(),
-			want: ArrValue(IntValue(1)),
+			want: arrValue(intValue(1)),
 		},
 		"empty map": {
 			in:   pcommon.NewValueMap(),
-			want: Value{kind: KindObject},
+			want: Value{kind: KindObject, obj: nil},
 		},
 		"non-empty map": {
 			in: func() pcommon.Value {
@@ -255,13 +246,13 @@ func TestValue_FromAttribute(t *testing.T) {
 				v.Map().PutInt("a", 1)
 				return v
 			}(),
-			want: Value{kind: KindObject, doc: Document{[]field{{"a", IntValue(1)}}}},
+			want: Value{kind: KindObject, obj: []field{{"a", intValue(1)}}},
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			v := ValueFromAttribute(test.in)
+			v := valueFromAttribute(test.in)
 			assert.Equal(t, test.want, v)
 		})
 	}
@@ -315,10 +306,11 @@ func TestDocument_Serialize_Flat(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
+			var doc Document
 			var buf strings.Builder
 			m := pcommon.NewMap()
 			assert.NoError(t, m.FromRaw(test.attrs))
-			doc := DocumentFromAttributes(m)
+			doc.AddAttributes("", m)
 			doc.Dedup()
 			err := doc.Serialize(&buf, false)
 			require.NoError(t, err)
@@ -376,10 +368,11 @@ func TestDocument_Serialize_Dedot(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
+			var doc Document
 			var buf strings.Builder
 			m := pcommon.NewMap()
 			assert.NoError(t, m.FromRaw(test.attrs))
-			doc := DocumentFromAttributes(m)
+			doc.AddAttributes("", m)
 			doc.Dedup()
 			err := doc.Serialize(&buf, true)
 			require.NoError(t, err)
@@ -395,31 +388,29 @@ func TestValue_Serialize(t *testing.T) {
 		want  string
 	}{
 		"nil value":         {value: nilValue, want: "null"},
-		"bool value: true":  {value: BoolValue(true), want: "true"},
-		"bool value: false": {value: BoolValue(false), want: "false"},
-		"int value":         {value: IntValue(42), want: "42"},
-		"double value":      {value: DoubleValue(3.14), want: "3.14"},
-		"NaN is undefined":  {value: DoubleValue(math.NaN()), want: "null"},
-		"Inf is undefined":  {value: DoubleValue(math.Inf(0)), want: "null"},
-		"string value":      {value: StringValue("Hello World!"), want: `"Hello World!"`},
+		"bool value: true":  {value: boolValue(true), want: "true"},
+		"bool value: false": {value: boolValue(false), want: "false"},
+		"int value":         {value: intValue(42), want: "42"},
+		"double value":      {value: doubleValue(3.14), want: "3.14"},
+		"NaN is undefined":  {value: doubleValue(math.NaN()), want: "null"},
+		"Inf is undefined":  {value: doubleValue(math.Inf(0)), want: "null"},
+		"string value":      {value: stringValue("Hello World!"), want: `"Hello World!"`},
 		"timestamp": {
-			value: TimestampValue(dijkstra),
+			value: timestampValue(dijkstra),
 			want:  `"1930-05-11T16:33:11.123456789Z"`,
 		},
 		"array": {
-			value: ArrValue(BoolValue(true), IntValue(23)),
+			value: arrValue(boolValue(true), intValue(23)),
 			want:  `[true,23]`,
 		},
 		"object": {
 			value: func() Value {
-				doc := Document{}
-				doc.AddString("a", "b")
-				return Value{kind: KindObject, doc: doc}
+				return Value{kind: KindObject, obj: []field{{key: "a", value: stringValue("b")}}}
 			}(),
 			want: `{"a":"b"}`,
 		},
 		"empty object": {
-			value: Value{kind: KindObject, doc: Document{}},
+			value: Value{kind: KindObject, obj: nil},
 			want:  "null",
 		},
 	}

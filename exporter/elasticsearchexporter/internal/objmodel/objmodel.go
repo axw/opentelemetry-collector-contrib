@@ -63,7 +63,7 @@ type Value struct {
 	dbl       float64
 	str       string
 	arr       []Value
-	doc       Document
+	obj       []field
 	ts        time.Time
 }
 
@@ -88,40 +88,19 @@ const tsLayout = "2006-01-02T15:04:05.000000000Z"
 var nilValue = Value{kind: KindNil}
 var ignoreValue = Value{kind: KindIgnore}
 
-// DocumentFromAttributes creates a document from a OpenTelemetry attribute
-// map. All nested maps will be flattened, with keys being joined using a `.` symbol.
-func DocumentFromAttributes(am pcommon.Map) Document {
-	return DocumentFromAttributesWithPath("", am)
-}
-
-// DocumentFromAttributesWithPath creates a document from a OpenTelemetry attribute
-// map. All nested maps will be flattened, with keys being joined using a `.` symbol.
-//
-// All keys in the map will be prefixed with path.
-func DocumentFromAttributesWithPath(path string, am pcommon.Map) Document {
-	if am.Len() == 0 {
-		return Document{}
-	}
-
-	fields := make([]field, 0, am.Len())
-	fields = appendAttributeFields(fields, path, am)
-	return Document{fields}
-}
-
 // AddTimestamp adds a raw timestamp value to the Document.
 func (doc *Document) AddTimestamp(key string, ts pcommon.Timestamp) {
-	doc.Add(key, TimestampValue(ts.AsTime()))
+	doc.add(key, timestampValue(ts.AsTime()))
 }
 
-// Add adds a converted value to the document.
-func (doc *Document) Add(key string, v Value) {
+func (doc *Document) add(key string, v Value) {
 	doc.fields = append(doc.fields, field{key: key, value: v})
 }
 
 // AddString adds a string to the document.
 func (doc *Document) AddString(key string, v string) {
 	if v != "" {
-		doc.Add(key, StringValue(v))
+		doc.add(key, stringValue(v))
 	}
 }
 
@@ -143,7 +122,7 @@ func (doc *Document) AddTraceID(key string, id pcommon.TraceID) {
 
 // AddInt adds an integer value to the document.
 func (doc *Document) AddInt(key string, value int64) {
-	doc.Add(key, IntValue(value))
+	doc.add(key, intValue(value))
 }
 
 // AddAttributes expands and flattens all key-value pairs from the input attribute map into
@@ -161,7 +140,7 @@ func (doc *Document) AddAttribute(key string, attribute pcommon.Value) {
 	case pcommon.ValueTypeMap:
 		doc.AddAttributes(key, attribute.Map())
 	default:
-		doc.Add(key, ValueFromAttribute(attribute))
+		doc.add(key, valueFromAttribute(attribute))
 	}
 }
 
@@ -176,12 +155,16 @@ func (doc *Document) AddEvents(key string, events ptrace.SpanEventSlice) {
 
 // Sort sorts all fields in the document by key name.
 func (doc *Document) Sort() {
-	sort.SliceStable(doc.fields, func(i, j int) bool {
-		return doc.fields[i].key < doc.fields[j].key
+	sortObject(doc.fields)
+}
+
+func sortObject(fields []field) {
+	sort.SliceStable(fields, func(i, j int) bool {
+		return fields[i].key < fields[j].key
 	})
 
-	for i := range doc.fields {
-		fld := &doc.fields[i]
+	for i := range fields {
+		fld := &fields[i]
 		fld.value.Sort()
 	}
 }
@@ -191,9 +174,13 @@ func (doc *Document) Sort() {
 //
 // Dedup ensure that keys are sorted.
 func (doc *Document) Dedup() {
+	dedupObject(doc.fields)
+}
+
+func dedupObject(fields []field) {
 	// 1. Always ensure the fields are sorted, Dedup support requires
 	// Fields to be sorted.
-	doc.Sort()
+	sortObject(fields)
 
 	// 2. rename fields if a primitive value is overwritten by an object.
 	//    For example the pair (path.x=1, path.x.a="test") becomes:
@@ -209,30 +196,30 @@ func (doc *Document) Dedup() {
 	//
 	//    This step removes potential conflicts when dedotting and serializing fields.
 	var renamed bool
-	for i := 0; i < len(doc.fields)-1; i++ {
-		key, nextKey := doc.fields[i].key, doc.fields[i+1].key
+	for i := 0; i < len(fields)-1; i++ {
+		key, nextKey := fields[i].key, fields[i+1].key
 		if len(key) < len(nextKey) && strings.HasPrefix(nextKey, key) && nextKey[len(key)] == '.' {
 			renamed = true
-			doc.fields[i].key = key + ".value"
+			fields[i].key = key + ".value"
 		}
 	}
 	if renamed {
-		doc.Sort()
+		sortObject(fields)
 	}
 
 	// 3. mark duplicates as 'ignore'
 	//
 	//    This step ensures that we do not have duplicate fields names when serializing.
 	//    Elasticsearch JSON parser will fail otherwise.
-	for i := 0; i < len(doc.fields)-1; i++ {
-		if doc.fields[i].key == doc.fields[i+1].key {
-			doc.fields[i].value = ignoreValue
+	for i := 0; i < len(fields)-1; i++ {
+		if fields[i].key == fields[i+1].key {
+			fields[i].value = ignoreValue
 		}
 	}
 
 	// 4. fix objects that might be stored in arrays
-	for i := range doc.fields {
-		doc.fields[i].value.Dedup()
+	for i := range fields {
+		fields[i].value.Dedup()
 	}
 }
 
@@ -245,13 +232,17 @@ func (doc *Document) Serialize(w io.Writer, dedot bool) error {
 }
 
 func (doc *Document) iterJSON(v *json.Visitor, dedot bool) error {
-	if dedot {
-		return doc.iterJSONDedot(v)
-	}
-	return doc.iterJSONFlat(v)
+	return iterObjectJSON(v, dedot, doc.fields)
 }
 
-func (doc *Document) iterJSONFlat(w *json.Visitor) error {
+func iterObjectJSON(v *json.Visitor, dedot bool, fields []field) error {
+	if dedot {
+		return iterJSONDedot(v, fields)
+	}
+	return iterJSONFlat(v, fields)
+}
+
+func iterJSONFlat(w *json.Visitor, fields []field) error {
 	err := w.OnObjectStart(-1, structform.AnyType)
 	if err != nil {
 		return err
@@ -260,8 +251,8 @@ func (doc *Document) iterJSONFlat(w *json.Visitor) error {
 		_ = w.OnObjectFinished()
 	}()
 
-	for i := range doc.fields {
-		fld := &doc.fields[i]
+	for i := range fields {
+		fld := &fields[i]
 		if fld.value.IsEmpty() {
 			continue
 		}
@@ -278,7 +269,7 @@ func (doc *Document) iterJSONFlat(w *json.Visitor) error {
 	return nil
 }
 
-func (doc *Document) iterJSONDedot(w *json.Visitor) error {
+func iterJSONDedot(w *json.Visitor, fields []field) error {
 	objPrefix := ""
 	level := 0
 
@@ -289,8 +280,8 @@ func (doc *Document) iterJSONDedot(w *json.Visitor) error {
 		_ = w.OnObjectFinished()
 	}()
 
-	for i := range doc.fields {
-		fld := &doc.fields[i]
+	for i := range fields {
+		fld := &fields[i]
 		if fld.value.IsEmpty() {
 			continue
 		}
@@ -367,17 +358,13 @@ func (doc *Document) iterJSONDedot(w *json.Visitor) error {
 	return nil
 }
 
-// StringValue create a new value from a string.
-func StringValue(str string) Value { return Value{kind: KindString, str: str} }
+func stringValue(str string) Value { return Value{kind: KindString, str: str} }
 
-// IntValue creates a new value from an integer.
-func IntValue(i int64) Value { return Value{kind: KindInt, primitive: uint64(i)} }
+func intValue(i int64) Value { return Value{kind: KindInt, primitive: uint64(i)} }
 
-// DoubleValue creates a new value from a double value..
-func DoubleValue(d float64) Value { return Value{kind: KindDouble, dbl: d} }
+func doubleValue(d float64) Value { return Value{kind: KindDouble, dbl: d} }
 
-// BoolValue creates a new value from a double value..
-func BoolValue(b bool) Value {
+func boolValue(b bool) Value {
 	var v uint64
 	if b {
 		v = 1
@@ -385,33 +372,39 @@ func BoolValue(b bool) Value {
 	return Value{kind: KindBool, primitive: v}
 }
 
-// ArrValue combines multiple values into an array value.
-func ArrValue(values ...Value) Value {
+func arrValue(values ...Value) Value {
 	return Value{kind: KindArr, arr: values}
 }
 
-// TimestampValue create a new value from a time.Time.
-func TimestampValue(ts time.Time) Value {
+func timestampValue(ts time.Time) Value {
 	return Value{kind: KindTimestamp, ts: ts}
 }
 
-// ValueFromAttribute converts a AttributeValue into a value.
-func ValueFromAttribute(attr pcommon.Value) Value {
+func objectValue(m pcommon.Map) Value {
+	n := m.Len()
+	if n == 0 {
+		return Value{kind: KindObject, obj: nil}
+	}
+	fields := make([]field, 0, n)
+	fields = appendAttributeFields(fields, "", m)
+	return Value{kind: KindObject, obj: fields}
+}
+
+func valueFromAttribute(attr pcommon.Value) Value {
 	switch attr.Type() {
 	case pcommon.ValueTypeInt:
-		return IntValue(attr.Int())
+		return intValue(attr.Int())
 	case pcommon.ValueTypeDouble:
-		return DoubleValue(attr.Double())
+		return doubleValue(attr.Double())
 	case pcommon.ValueTypeStr:
-		return StringValue(attr.Str())
+		return stringValue(attr.Str())
 	case pcommon.ValueTypeBool:
-		return BoolValue(attr.Bool())
+		return boolValue(attr.Bool())
 	case pcommon.ValueTypeSlice:
 		sub := arrFromAttributes(attr.Slice())
-		return ArrValue(sub...)
+		return arrValue(sub...)
 	case pcommon.ValueTypeMap:
-		sub := DocumentFromAttributes(attr.Map())
-		return Value{kind: KindObject, doc: sub}
+		return objectValue(attr.Map())
 	default:
 		return nilValue
 	}
@@ -421,7 +414,7 @@ func ValueFromAttribute(attr pcommon.Value) Value {
 func (v *Value) Sort() {
 	switch v.kind {
 	case KindObject:
-		v.doc.Sort()
+		sortObject(v.obj)
 	case KindArr:
 		for i := range v.arr {
 			v.arr[i].Sort()
@@ -435,7 +428,7 @@ func (v *Value) Sort() {
 func (v *Value) Dedup() {
 	switch v.kind {
 	case KindObject:
-		v.doc.Dedup()
+		dedupObject(v.obj)
 	case KindArr:
 		for i := range v.arr {
 			v.arr[i].Dedup()
@@ -450,7 +443,7 @@ func (v *Value) IsEmpty() bool {
 	case KindArr:
 		return len(v.arr) == 0
 	case KindObject:
-		return len(v.doc.fields) == 0
+		return len(v.obj) == 0
 	default:
 		return false
 	}
@@ -476,10 +469,10 @@ func (v *Value) iterJSON(w *json.Visitor, dedot bool) error {
 		str := v.ts.UTC().Format(tsLayout)
 		return w.OnString(str)
 	case KindObject:
-		if len(v.doc.fields) == 0 {
+		if len(v.obj) == 0 {
 			return w.OnNil()
 		}
-		return v.doc.iterJSON(w, dedot)
+		return iterObjectJSON(w, dedot, v.obj)
 	case KindArr:
 		if err := w.OnArrayStart(-1, structform.AnyType); err != nil {
 			return err
@@ -504,7 +497,7 @@ func arrFromAttributes(aa pcommon.Slice) []Value {
 
 	values := make([]Value, aa.Len())
 	for i := 0; i < aa.Len(); i++ {
-		values[i] = ValueFromAttribute(aa.At(i))
+		values[i] = valueFromAttribute(aa.At(i))
 	}
 	return values
 }
@@ -528,7 +521,7 @@ func appendAttributeValue(fields []field, path string, key string, attr pcommon.
 
 	return append(fields, field{
 		key:   flattenKey(path, key),
-		value: ValueFromAttribute(attr),
+		value: valueFromAttribute(attr),
 	})
 }
 
