@@ -29,10 +29,11 @@ func (c *Config) Flags(fs *pflag.FlagSet) {
 
 	c.CommonFlags(fs)
 
-	fs.StringVar(&c.HTTPPath, "otlp-http-url-path", "/v1/metrics", "Which URL path to write to")
-
 	fs.Var(&c.MetricType, "metric-type", "Metric type enum. must be one of 'Gauge' or 'Sum'")
-	fs.IntVar(&c.NumMetrics, "metrics", 1, "Number of metrics to generate in each worker (ignored if duration is provided)")
+	fs.IntVar(
+		&c.NumMetrics, "metrics", 1,
+		"Number of metrics to generate in each worker (ignored if duration is provided)",
+	)
 
 	fs.StringVar(&c.TraceID, "trace-id", "", "TraceID to use as exemplar")
 	fs.StringVar(&c.SpanID, "span-id", "", "SpanID to use as exemplar")

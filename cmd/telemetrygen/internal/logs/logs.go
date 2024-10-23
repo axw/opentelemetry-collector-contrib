@@ -5,69 +5,19 @@ package logs
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/log"
-	sdklog "go.opentelemetry.io/otel/sdk/log"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
-
-	"github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen/internal/common"
 )
 
-// Start starts the log telemetry generator
-func Start(cfg *Config) error {
-	logger, err := common.CreateLogger(cfg.SkipSettingGRPCLogger)
-	if err != nil {
-		return err
-	}
-	expFunc := func() (sdklog.Exporter, error) {
-		var exp sdklog.Exporter
-		if cfg.UseHTTP {
-			var exporterOpts []otlploghttp.Option
-
-			logger.Info("starting HTTP exporter")
-			exporterOpts, err = httpExporterOptions(cfg)
-			if err != nil {
-				return nil, err
-			}
-			exp, err = otlploghttp.New(context.Background(), exporterOpts...)
-			if err != nil {
-				return nil, fmt.Errorf("failed to obtain OTLP HTTP exporter: %w", err)
-			}
-		} else {
-			var exporterOpts []otlploggrpc.Option
-
-			logger.Info("starting gRPC exporter")
-			exporterOpts, err = grpcExporterOptions(cfg)
-			if err != nil {
-				return nil, err
-			}
-			exp, err = otlploggrpc.New(context.Background(), exporterOpts...)
-			if err != nil {
-				return nil, fmt.Errorf("failed to obtain OTLP gRPC exporter: %w", err)
-			}
-		}
-		return exp, err
-	}
-
-	if err = Run(cfg, expFunc, logger); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // Run executes the test scenario.
-func Run(c *Config, exp func() (sdklog.Exporter, error), logger *zap.Logger) error {
+func Run(ctx context.Context, c *Config, lp log.LoggerProvider, logger *zap.Logger) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
@@ -84,42 +34,41 @@ func Run(c *Config, exp func() (sdklog.Exporter, error), logger *zap.Logger) err
 		logger.Info("generation of logs is limited", zap.Float64("per-second", float64(limit)))
 	}
 
-	wg := sync.WaitGroup{}
-	res := resource.NewWithAttributes(semconv.SchemaURL, c.GetAttributes()...)
-
-	running := &atomic.Bool{}
-	running.Store(true)
-
 	severityText, severityNumber, err := parseSeverity(c.SeverityText, c.SeverityNumber)
 	if err != nil {
 		return err
 	}
 
+	if c.SpanID.IsValid() || c.TraceID.IsValid() {
+		spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID: c.TraceID,
+			SpanID:  c.SpanID,
+			//TraceFlags TraceFlags
+			//TraceState TraceState
+		})
+		ctx = trace.ContextWithSpanContext(ctx, spanContext)
+	}
+
+	l := lp.Logger("telemetrygen")
+	var g errgroup.Group
 	for i := 0; i < c.WorkerCount; i++ {
-		wg.Add(1)
 		w := worker{
 			numLogs:        c.NumLogs,
 			limitPerSecond: limit,
 			body:           c.Body,
 			severityText:   severityText,
 			severityNumber: severityNumber,
-			totalDuration:  c.TotalDuration,
-			running:        running,
-			wg:             &wg,
 			logger:         logger.With(zap.Int("worker", i)),
-			index:          i,
-			traceID:        c.TraceID,
-			spanID:         c.SpanID,
 		}
-
-		go w.simulateLogs(res, exp, c.GetTelemetryAttributes())
+		g.Go(func() error {
+			err := w.simulateLogs(ctx, l, c.GetTelemetryAttributes())
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return err
+		})
 	}
-	if c.TotalDuration > 0 {
-		time.Sleep(c.TotalDuration)
-		running.Store(false)
-	}
-	wg.Wait()
-	return nil
+	return g.Wait()
 }
 
 func parseSeverity(severityText string, severityNumber int32) (string, log.Severity, error) {
