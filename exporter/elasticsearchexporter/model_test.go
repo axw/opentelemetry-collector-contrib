@@ -1200,12 +1200,14 @@ func TestEncodeLogOtelMode(t *testing.T) {
 	encoder, _ := newEncoder(MappingOTel)
 
 	for _, tc := range tests {
+		router := newDocumentRouter(MappingOTel, true, "", &Config{})
 		record, scope, resource := createTestOTelLogRecord(t, tc.rec)
 
-		idx := routeLogRecord(record.Attributes(), scope.Attributes(), resource.Attributes(), "", true, scope.Name())
+		idx, err := router.routeLogRecord(encodingContext{resource: resource, scope: scope}, record.Attributes())
+		require.NoError(t, err)
 
 		var buf bytes.Buffer
-		err := encoder.encodeLog(
+		err = encoder.encodeLog(
 			encodingContext{
 				resource:          resource,
 				resourceSchemaURL: tc.rec.Resource.SchemaURL,

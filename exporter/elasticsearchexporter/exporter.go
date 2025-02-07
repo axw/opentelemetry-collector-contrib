@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/exporter"
@@ -33,10 +32,9 @@ type elasticsearchExporter struct {
 	component.TelemetrySettings
 	userAgent string
 
-	config         *Config
-	index          string
-	logstashFormat LogstashFormatSettings
-	dynamicIndex   bool
+	config       *Config
+	index        string
+	dynamicIndex bool
 
 	wg          sync.WaitGroup // active sessions
 	bulkIndexer bulkIndexer
@@ -62,11 +60,10 @@ func newExporter(
 		TelemetrySettings: set.TelemetrySettings,
 		userAgent:         userAgent,
 
-		config:         cfg,
-		index:          index,
-		dynamicIndex:   dynamicIndex,
-		logstashFormat: cfg.LogstashFormat,
-		bufferPool:     pool.NewBufferPool(),
+		config:       cfg,
+		index:        index,
+		dynamicIndex: dynamicIndex,
+		bufferPool:   pool.NewBufferPool(),
 	}
 }
 
@@ -105,6 +102,7 @@ func (e *elasticsearchExporter) Shutdown(ctx context.Context) error {
 
 func (e *elasticsearchExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 	mappingMode := e.config.MappingMode()
+	router := newDocumentRouter(mappingMode, e.dynamicIndex, e.index, e.config)
 	encoder, err := newEncoder(mappingMode)
 	if err != nil {
 		return err
@@ -128,6 +126,7 @@ func (e *elasticsearchExporter) pushLogsData(ctx context.Context, ld plog.Logs) 
 		for j := 0; j < ills.Len(); j++ {
 			ill := ills.At(j)
 			scope := ill.Scope()
+
 			ec := encodingContext{
 				resource:          resource,
 				resourceSchemaURL: rl.SchemaUrl(),
@@ -137,7 +136,7 @@ func (e *elasticsearchExporter) pushLogsData(ctx context.Context, ld plog.Logs) 
 
 			logs := ill.LogRecords()
 			for k := 0; k < logs.Len(); k++ {
-				if err := e.pushLogRecord(ctx, mappingMode, encoder, ec, logs.At(k), session); err != nil {
+				if err := e.pushLogRecord(ctx, router, encoder, ec, logs.At(k), session); err != nil {
 					if cerr := ctx.Err(); cerr != nil {
 						return cerr
 					}
@@ -164,30 +163,15 @@ func (e *elasticsearchExporter) pushLogsData(ctx context.Context, ld plog.Logs) 
 
 func (e *elasticsearchExporter) pushLogRecord(
 	ctx context.Context,
-	mappingMode MappingMode,
+	router documentRouter,
 	encoder encoder,
 	ec encodingContext,
 	record plog.LogRecord,
 	bulkIndexerSession bulkIndexerSession,
 ) error {
-	fIndex := elasticsearch.Index{Index: e.index}
-	if e.dynamicIndex {
-		fIndex = routeLogRecord(
-			record.Attributes(),
-			ec.scope.Attributes(),
-			ec.resource.Attributes(),
-			e.index,
-			mappingMode == MappingOTel,
-			ec.scope.Name(),
-		)
-	}
-
-	if e.logstashFormat.Enabled {
-		formattedIndex, err := generateIndexWithLogstashFormat(fIndex.Index, &e.logstashFormat, time.Now())
-		if err != nil {
-			return err
-		}
-		fIndex = elasticsearch.Index{Index: formattedIndex}
+	fIndex, err := router.routeLogRecord(ec, record.Attributes())
+	if err != nil {
+		return err
 	}
 
 	buf := e.bufferPool.NewPooledBuffer()
@@ -202,11 +186,8 @@ func (e *elasticsearchExporter) pushLogRecord(
 }
 
 type dataPointsGroup struct {
-	resource          pcommon.Resource
-	resourceSchemaURL string
-	scope             pcommon.InstrumentationScope
-	scopeSchemaURL    string
-	dataPoints        []datapoints.DataPoint
+	encodingContext encodingContext
+	dataPoints      []datapoints.DataPoint
 }
 
 func (p *dataPointsGroup) addDataPoint(dp datapoints.DataPoint) {
@@ -218,6 +199,7 @@ func (e *elasticsearchExporter) pushMetricsData(
 	metrics pmetric.Metrics,
 ) error {
 	mappingMode := e.config.MappingMode()
+	router := newDocumentRouter(mappingMode, e.dynamicIndex, e.index, e.config)
 	hasher, err := newDataPointHasher(mappingMode)
 	if err != nil {
 		return err
@@ -243,12 +225,13 @@ func (e *elasticsearchExporter) pushMetricsData(
 				metric := scopeMetrics.Metrics().At(k)
 
 				upsertDataPoint := func(dp datapoints.DataPoint) error {
-					fIndex, err := e.getMetricDataPointIndex(
-						e.config.MappingMode(),
-						resource,
-						scope,
-						dp,
-					)
+					ec := encodingContext{
+						resource:          resource,
+						resourceSchemaURL: resourceMetric.SchemaUrl(),
+						scope:             scope,
+						scopeSchemaURL:    scopeMetrics.SchemaUrl(),
+					}
+					fIndex, err := router.routeDataPoint(ec, dp.Attributes())
 					if err != nil {
 						return err
 					}
@@ -261,9 +244,8 @@ func (e *elasticsearchExporter) pushMetricsData(
 					dpGroup, ok := groupedDataPoints[dpHash]
 					if !ok {
 						groupedDataPoints[dpHash] = &dataPointsGroup{
-							resource:   resource,
-							scope:      scope,
-							dataPoints: []datapoints.DataPoint{dp},
+							encodingContext: ec,
+							dataPoints:      []datapoints.DataPoint{dp},
 						}
 					} else {
 						dpGroup.addDataPoint(dp)
@@ -343,12 +325,7 @@ func (e *elasticsearchExporter) pushMetricsData(
 		for _, dpGroup := range groupedDataPoints {
 			buf := e.bufferPool.NewPooledBuffer()
 			dynamicTemplates, err := encoder.encodeMetrics(
-				encodingContext{
-					resource:          dpGroup.resource,
-					resourceSchemaURL: dpGroup.resourceSchemaURL,
-					scope:             dpGroup.scope,
-					scopeSchemaURL:    dpGroup.scopeSchemaURL,
-				},
+				dpGroup.encodingContext,
 				dpGroup.dataPoints,
 				&validationErrs,
 				fIndex,
@@ -381,39 +358,12 @@ func (e *elasticsearchExporter) pushMetricsData(
 	return errors.Join(errs...)
 }
 
-func (e *elasticsearchExporter) getMetricDataPointIndex(
-	mappingMode MappingMode,
-	resource pcommon.Resource,
-	scope pcommon.InstrumentationScope,
-	dataPoint datapoints.DataPoint,
-) (elasticsearch.Index, error) {
-	fIndex := elasticsearch.Index{Index: e.index}
-	if e.dynamicIndex {
-		fIndex = routeDataPoint(
-			dataPoint.Attributes(),
-			scope.Attributes(),
-			resource.Attributes(),
-			e.index,
-			mappingMode == MappingOTel,
-			scope.Name(),
-		)
-	}
-
-	if e.logstashFormat.Enabled {
-		formattedIndex, err := generateIndexWithLogstashFormat(fIndex.Index, &e.logstashFormat, time.Now())
-		if err != nil {
-			return elasticsearch.Index{}, err
-		}
-		fIndex = elasticsearch.Index{Index: formattedIndex}
-	}
-	return fIndex, nil
-}
-
 func (e *elasticsearchExporter) pushTraceData(
 	ctx context.Context,
 	td ptrace.Traces,
 ) error {
 	mappingMode := e.config.MappingMode()
+	router := newDocumentRouter(mappingMode, e.dynamicIndex, e.index, e.config)
 	encoder, err := newEncoder(mappingMode)
 	if err != nil {
 		return err
@@ -447,7 +397,7 @@ func (e *elasticsearchExporter) pushTraceData(
 			spans := scopeSpan.Spans()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
-				if err := e.pushTraceRecord(ctx, mappingMode, encoder, ec, span, session); err != nil {
+				if err := e.pushTraceRecord(ctx, router, encoder, ec, span, session); err != nil {
 					if cerr := ctx.Err(); cerr != nil {
 						return cerr
 					}
@@ -455,7 +405,7 @@ func (e *elasticsearchExporter) pushTraceData(
 				}
 				for ii := 0; ii < span.Events().Len(); ii++ {
 					spanEvent := span.Events().At(ii)
-					if err := e.pushSpanEvent(ctx, mappingMode, encoder, ec, span, spanEvent, session); err != nil {
+					if err := e.pushSpanEvent(ctx, router, encoder, ec, span, spanEvent, session); err != nil {
 						errs = append(errs, err)
 					}
 				}
@@ -474,30 +424,15 @@ func (e *elasticsearchExporter) pushTraceData(
 
 func (e *elasticsearchExporter) pushTraceRecord(
 	ctx context.Context,
-	mappingMode MappingMode,
+	router documentRouter,
 	encoder encoder,
 	ec encodingContext,
 	span ptrace.Span,
 	bulkIndexerSession bulkIndexerSession,
 ) error {
-	fIndex := elasticsearch.Index{Index: e.index}
-	if e.dynamicIndex {
-		fIndex = routeSpan(
-			span.Attributes(),
-			ec.scope.Attributes(),
-			ec.resource.Attributes(),
-			e.index,
-			mappingMode == MappingOTel,
-			span.Name(),
-		)
-	}
-
-	if e.logstashFormat.Enabled {
-		formattedIndex, err := generateIndexWithLogstashFormat(fIndex.Index, &e.logstashFormat, time.Now())
-		if err != nil {
-			return err
-		}
-		fIndex = elasticsearch.Index{Index: formattedIndex}
+	fIndex, err := router.routeSpan(ec, span.Attributes())
+	if err != nil {
+		return err
 	}
 
 	buf := e.bufferPool.NewPooledBuffer()
@@ -511,31 +446,16 @@ func (e *elasticsearchExporter) pushTraceRecord(
 
 func (e *elasticsearchExporter) pushSpanEvent(
 	ctx context.Context,
-	mappingMode MappingMode,
+	router documentRouter,
 	encoder encoder,
 	ec encodingContext,
 	span ptrace.Span,
 	spanEvent ptrace.SpanEvent,
 	bulkIndexerSession bulkIndexerSession,
 ) error {
-	fIndex := elasticsearch.Index{Index: e.index}
-	if e.dynamicIndex {
-		fIndex = routeSpanEvent(
-			spanEvent.Attributes(),
-			ec.scope.Attributes(),
-			ec.resource.Attributes(),
-			e.index,
-			mappingMode == MappingOTel,
-			ec.scope.Name(),
-		)
-	}
-
-	if e.logstashFormat.Enabled {
-		formattedIndex, err := generateIndexWithLogstashFormat(fIndex.Index, &e.logstashFormat, time.Now())
-		if err != nil {
-			return err
-		}
-		fIndex = elasticsearch.Index{Index: formattedIndex}
+	fIndex, err := router.routeSpanEvent(ec, spanEvent.Attributes())
+	if err != nil {
+		return err
 	}
 	buf := e.bufferPool.NewPooledBuffer()
 	if err := encoder.encodeSpanEvent(ec, span, spanEvent, fIndex, buf.Buffer); err != nil || buf.Buffer.Len() == 0 {
