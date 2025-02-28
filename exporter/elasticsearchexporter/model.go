@@ -14,61 +14,15 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	semconv "go.opentelemetry.io/collector/semconv/v1.22.0"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/datapoints"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/ecsmapping"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/elasticsearch"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/objmodel"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/serializer"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/serializer/otelserializer"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal/traceutil"
 )
-
-// resourceAttrsConversionMap contains conversions for resource-level attributes
-// from their Semantic Conventions (SemConv) names to equivalent Elastic Common
-// Schema (ECS) names.
-// If the ECS field name is specified as an empty string (""), the converter will
-// neither convert the SemConv key to the equivalent ECS name nor pass-through the
-// SemConv key as-is to become the ECS name.
-var resourceAttrsConversionMap = map[string]string{
-	semconv.AttributeServiceInstanceID:      "service.node.name",
-	semconv.AttributeDeploymentEnvironment:  "service.environment",
-	semconv.AttributeTelemetrySDKName:       "",
-	semconv.AttributeTelemetrySDKLanguage:   "",
-	semconv.AttributeTelemetrySDKVersion:    "",
-	semconv.AttributeTelemetryDistroName:    "",
-	semconv.AttributeTelemetryDistroVersion: "",
-	semconv.AttributeCloudPlatform:          "cloud.service.name",
-	semconv.AttributeContainerImageTags:     "container.image.tag",
-	semconv.AttributeHostName:               "host.hostname",
-	semconv.AttributeHostArch:               "host.architecture",
-	semconv.AttributeProcessExecutablePath:  "process.executable",
-	semconv.AttributeProcessRuntimeName:     "service.runtime.name",
-	semconv.AttributeProcessRuntimeVersion:  "service.runtime.version",
-	semconv.AttributeOSName:                 "host.os.name",
-	semconv.AttributeOSType:                 "host.os.platform",
-	semconv.AttributeOSDescription:          "host.os.full",
-	semconv.AttributeOSVersion:              "host.os.version",
-	semconv.AttributeK8SDeploymentName:      "kubernetes.deployment.name",
-	semconv.AttributeK8SNamespaceName:       "kubernetes.namespace",
-	semconv.AttributeK8SNodeName:            "kubernetes.node.name",
-	semconv.AttributeK8SPodName:             "kubernetes.pod.name",
-	semconv.AttributeK8SPodUID:              "kubernetes.pod.uid",
-	semconv.AttributeK8SJobName:             "kubernetes.job.name",
-	semconv.AttributeK8SCronJobName:         "kubernetes.cronjob.name",
-	semconv.AttributeK8SStatefulSetName:     "kubernetes.statefulset.name",
-	semconv.AttributeK8SReplicaSetName:      "kubernetes.replicaset.name",
-	semconv.AttributeK8SDaemonSetName:       "kubernetes.daemonset.name",
-	semconv.AttributeK8SContainerName:       "kubernetes.container.name",
-	semconv.AttributeK8SClusterName:         "orchestrator.cluster.name",
-}
-
-// resourceAttrsToPreserve contains conventions that should be preserved in ECS mode.
-// This can happen when an attribute needs to be mapped to an ECS equivalent but
-// at the same time be preserved to its original form.
-var resourceAttrsToPreserve = map[string]bool{
-	semconv.AttributeHostName: true,
-}
 
 var ErrInvalidTypeForBodyMapMode = errors.New("invalid log record body type for 'bodymap' mapping mode")
 
@@ -187,44 +141,14 @@ func (e ecsModeEncoder) encodeLog(
 	buf *bytes.Buffer,
 ) error {
 	var document objmodel.Document
-
-	// First, try to map resource-level attributes to ECS fields.
-	encodeAttributesECSMode(&document, ec.resource.Attributes(), resourceAttrsConversionMap, resourceAttrsToPreserve)
-
-	// Then, try to map scope-level attributes to ECS fields.
-	scopeAttrsConversionMap := map[string]string{
-		// None at the moment
-	}
-	encodeAttributesECSMode(&document, ec.scope.Attributes(), scopeAttrsConversionMap, resourceAttrsToPreserve)
-
-	// Finally, try to map record-level attributes to ECS fields.
-	recordAttrsConversionMap := map[string]string{
-		"event.name":                         "event.action",
-		semconv.AttributeExceptionMessage:    "error.message",
-		semconv.AttributeExceptionStacktrace: "error.stacktrace",
-		semconv.AttributeExceptionType:       "error.type",
-		semconv.AttributeExceptionEscaped:    "event.error.exception.handled",
-	}
-	encodeAttributesECSMode(&document, record.Attributes(), recordAttrsConversionMap, resourceAttrsToPreserve)
+	ecsmapping.EncodeResource(
+		ec.resource, &document,
+		true, // setAgentFields
+		true, // setHostOSType
+	)
+	ecsmapping.EncodeScope(ec.scope, &document)
+	ecsmapping.EncodeLogRecord(record, &document)
 	addDataStreamAttributes(&document, "", idx)
-
-	// Handle special cases.
-	encodeLogAgentNameECSMode(&document, ec.resource)
-	encodeLogAgentVersionECSMode(&document, ec.resource)
-	encodeLogHostOsTypeECSMode(&document, ec.resource)
-	encodeLogTimestampECSMode(&document, record)
-	document.AddTraceID("trace.id", record.TraceID())
-	document.AddSpanID("span.id", record.SpanID())
-	if n := record.SeverityNumber(); n != plog.SeverityNumberUnspecified {
-		document.AddInt("event.severity", int64(record.SeverityNumber()))
-	}
-
-	document.AddString("log.level", record.SeverityText())
-
-	if record.Body().Type() == pcommon.ValueTypeStr {
-		document.AddAttribute("message", record.Body())
-	}
-
 	return document.Serialize(buf, true)
 }
 
@@ -378,23 +302,17 @@ func (ecsDataPointsEncoder) encodeMetrics(
 	idx elasticsearch.Index,
 	buf *bytes.Buffer,
 ) (map[string]string, error) {
-	dp0 := dataPoints[0]
 	var document objmodel.Document
-	encodeAttributesECSMode(&document, ec.resource.Attributes(), resourceAttrsConversionMap, resourceAttrsToPreserve)
-	document.AddTimestamp("@timestamp", dp0.Timestamp())
-	document.AddAttributes("", dp0.Attributes())
+	ecsmapping.EncodeResource(
+		ec.resource,
+		&document,
+		false, // setAgentFields
+		false, // setHostOSType
+	)
+	ecsmapping.EncodeScope(ec.scope, &document)
+	ecsmapping.EncodeDataPoints(dataPoints, &document, validationErrors)
 	addDataStreamAttributes(&document, "", idx)
-
-	for _, dp := range dataPoints {
-		value, err := dp.Value()
-		if err != nil {
-			*validationErrors = append(*validationErrors, err)
-			continue
-		}
-		document.AddAttribute(dp.Metric().Name(), value)
-	}
 	err := document.Serialize(buf, true)
-
 	return document.DynamicTemplates(), err
 }
 
@@ -449,121 +367,4 @@ func scopeToAttributes(scope pcommon.InstrumentationScope) pcommon.Map {
 		attrs.PutStr(k, v.(string))
 	}
 	return attrs
-}
-
-func encodeAttributesECSMode(document *objmodel.Document, attrs pcommon.Map, conversionMap map[string]string, preserveMap map[string]bool) {
-	if len(conversionMap) == 0 {
-		// No conversions to be done; add all attributes at top level of
-		// document.
-		document.AddAttributes("", attrs)
-		return
-	}
-
-	attrs.Range(func(k string, v pcommon.Value) bool {
-		// If ECS key is found for current k in conversion map, use it.
-		if ecsKey, exists := conversionMap[k]; exists {
-			if ecsKey == "" {
-				// Skip the conversion for this k.
-				return true
-			}
-
-			document.AddAttribute(ecsKey, v)
-			if preserve := preserveMap[k]; preserve {
-				document.AddAttribute(k, v)
-			}
-			return true
-		}
-
-		// Otherwise, add key at top level with attribute name as-is.
-		document.AddAttribute(k, v)
-		return true
-	})
-}
-
-func encodeLogAgentNameECSMode(document *objmodel.Document, resource pcommon.Resource) {
-	// Parse out telemetry SDK name, language, and distro name from resource
-	// attributes, setting defaults as needed.
-	telemetrySdkName := "otlp"
-	var telemetrySdkLanguage, telemetryDistroName string
-
-	attrs := resource.Attributes()
-	if v, exists := attrs.Get(semconv.AttributeTelemetrySDKName); exists {
-		telemetrySdkName = v.Str()
-	}
-	if v, exists := attrs.Get(semconv.AttributeTelemetrySDKLanguage); exists {
-		telemetrySdkLanguage = v.Str()
-	}
-	if v, exists := attrs.Get(semconv.AttributeTelemetryDistroName); exists {
-		telemetryDistroName = v.Str()
-		if telemetrySdkLanguage == "" {
-			telemetrySdkLanguage = "unknown"
-		}
-	}
-
-	// Construct agent name from telemetry SDK name, language, and distro name.
-	agentName := telemetrySdkName
-	if telemetryDistroName != "" {
-		agentName = fmt.Sprintf("%s/%s/%s", agentName, telemetrySdkLanguage, telemetryDistroName)
-	} else if telemetrySdkLanguage != "" {
-		agentName = fmt.Sprintf("%s/%s", agentName, telemetrySdkLanguage)
-	}
-
-	// Set agent name in document.
-	document.AddString("agent.name", agentName)
-}
-
-func encodeLogAgentVersionECSMode(document *objmodel.Document, resource pcommon.Resource) {
-	attrs := resource.Attributes()
-
-	if telemetryDistroVersion, exists := attrs.Get(semconv.AttributeTelemetryDistroVersion); exists {
-		document.AddString("agent.version", telemetryDistroVersion.Str())
-		return
-	}
-
-	if telemetrySdkVersion, exists := attrs.Get(semconv.AttributeTelemetrySDKVersion); exists {
-		document.AddString("agent.version", telemetrySdkVersion.Str())
-		return
-	}
-}
-
-func encodeLogHostOsTypeECSMode(document *objmodel.Document, resource pcommon.Resource) {
-	// https://www.elastic.co/guide/en/ecs/current/ecs-os.html#field-os-type:
-	//
-	// "One of these following values should be used (lowercase): linux, macos, unix, windows.
-	// If the OS you’re dealing with is not in the list, the field should not be populated."
-
-	var ecsHostOsType string
-	if semConvOsType, exists := resource.Attributes().Get(semconv.AttributeOSType); exists {
-		switch semConvOsType.Str() {
-		case "windows", "linux":
-			ecsHostOsType = semConvOsType.Str()
-		case "darwin":
-			ecsHostOsType = "macos"
-		case "aix", "hpux", "solaris":
-			ecsHostOsType = "unix"
-		}
-	}
-
-	if semConvOsName, exists := resource.Attributes().Get(semconv.AttributeOSName); exists {
-		switch semConvOsName.Str() {
-		case "Android":
-			ecsHostOsType = "android"
-		case "iOS":
-			ecsHostOsType = "ios"
-		}
-	}
-
-	if ecsHostOsType == "" {
-		return
-	}
-	document.AddString("host.os.type", ecsHostOsType)
-}
-
-func encodeLogTimestampECSMode(document *objmodel.Document, record plog.LogRecord) {
-	if record.Timestamp() != 0 {
-		document.AddTimestamp("@timestamp", record.Timestamp())
-		return
-	}
-
-	document.AddTimestamp("@timestamp", record.ObservedTimestamp())
 }
