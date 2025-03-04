@@ -17,6 +17,7 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/datapoints"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/ecsmapping"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/elasticapmmapping"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/elasticsearch"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/objmodel"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/elasticsearchexporter/internal/serializer"
@@ -73,6 +74,10 @@ func newEncoder(mode MappingMode) (documentEncoder, error) {
 				dedot:            true,
 			},
 		}, nil
+	case MappingElasticAPM:
+		return elasticapmModeEncoder{
+			profilesUnsupportedEncoder: profilesUnsupportedEncoder{mode: mode},
+		}, nil
 	case MappingBodyMap:
 		return bodymapModeEncoder{
 			metricsUnsupportedEncoder:  metricsUnsupportedEncoder{mode: mode},
@@ -93,7 +98,6 @@ type legacyModeEncoder struct {
 }
 
 type ecsModeEncoder struct {
-	ecsDataPointsEncoder
 	nonOTelSpanEncoder
 	nopSpanEventEncoder
 	profilesUnsupportedEncoder
@@ -101,6 +105,10 @@ type ecsModeEncoder struct {
 
 type bodymapModeEncoder struct {
 	metricsUnsupportedEncoder
+	profilesUnsupportedEncoder
+}
+
+type elasticapmModeEncoder struct {
 	profilesUnsupportedEncoder
 }
 
@@ -145,11 +153,120 @@ func (e ecsModeEncoder) encodeLog(
 		ec.resource, &document,
 		true, // setAgentFields
 		true, // setHostOSType
+		(*objmodel.Document).AddAttribute,
 	)
 	ecsmapping.EncodeScope(ec.scope, &document)
-	ecsmapping.EncodeLogRecord(record, &document)
+	ecsmapping.EncodeLogRecord(
+		record, &document,
+		(*objmodel.Document).AddAttribute,
+	)
 	addDataStreamAttributes(&document, "", idx)
 	return document.Serialize(buf, true)
+}
+
+func (ecsModeEncoder) encodeMetrics(
+	ec encodingContext,
+	dataPoints []datapoints.DataPoint,
+	validationErrors *[]error,
+	idx elasticsearch.Index,
+	buf *bytes.Buffer,
+) (map[string]string, error) {
+	var document objmodel.Document
+	ecsmapping.EncodeResource(
+		ec.resource,
+		&document,
+		false, // setAgentFields
+		false, // setHostOSType
+		(*objmodel.Document).AddAttribute,
+	)
+	ecsmapping.EncodeScope(ec.scope, &document)
+	ecsmapping.EncodeDataPoints(
+		dataPoints, &document,
+		(*objmodel.Document).AddAttribute,
+		validationErrors,
+	)
+	addDataStreamAttributes(&document, "", idx)
+	err := document.Serialize(buf, true)
+	return document.DynamicTemplates(), err
+}
+
+func (elasticapmModeEncoder) encodeLog(
+	ec encodingContext,
+	record plog.LogRecord,
+	idx elasticsearch.Index,
+	buf *bytes.Buffer,
+) error {
+	var document objmodel.Document
+	ecsmapping.EncodeResource(
+		ec.resource, &document,
+		true, // setAgentFields
+		true, // setHostOSType
+		elasticapmmapping.SetResourceAttribute,
+	)
+	elasticapmmapping.EncodeScope(ec.scope, &document)
+	ecsmapping.EncodeLogRecord(
+		record, &document,
+		elasticapmmapping.SetLogRecordAttribute,
+	)
+	addDataStreamAttributes(&document, "", idx)
+	return document.Serialize(buf, true)
+}
+
+func (elasticapmModeEncoder) encodeMetrics(
+	ec encodingContext,
+	dataPoints []datapoints.DataPoint,
+	validationErrors *[]error,
+	idx elasticsearch.Index,
+	buf *bytes.Buffer,
+) (map[string]string, error) {
+	var document objmodel.Document
+	ecsmapping.EncodeResource(
+		ec.resource,
+		&document,
+		true, // setAgentFields
+		true, // setHostOSType
+		elasticapmmapping.SetResourceAttribute,
+	)
+	elasticapmmapping.EncodeScope(ec.scope, &document)
+	ecsmapping.EncodeDataPoints(
+		dataPoints, &document,
+		elasticapmmapping.SetDataPointAttribute,
+		validationErrors,
+	)
+	addDataStreamAttributes(&document, "", idx)
+	err := document.Serialize(buf, true)
+	return document.DynamicTemplates(), err
+}
+
+func (elasticapmModeEncoder) encodeSpan(
+	ec encodingContext,
+	span ptrace.Span,
+	idx elasticsearch.Index,
+	buf *bytes.Buffer,
+) error {
+	var document objmodel.Document
+	ecsmapping.EncodeResource(
+		ec.resource,
+		&document,
+		true, // setAgentFields
+		true, // setHostOSType
+		elasticapmmapping.SetResourceAttribute,
+	)
+	elasticapmmapping.EncodeScope(ec.scope, &document)
+	elasticapmmapping.EncodeSpan(span, &document)
+	addDataStreamAttributes(&document, "", idx)
+	return document.Serialize(buf, true)
+}
+
+func (elasticapmModeEncoder) encodeSpanEvent(
+	ec encodingContext,
+	span ptrace.Span,
+	spanEvent ptrace.SpanEvent,
+	idx elasticsearch.Index,
+	buf *bytes.Buffer,
+) error {
+	// TODO
+	return nil
 }
 
 func (e otelModeEncoder) encodeLog(
@@ -291,29 +408,6 @@ func (e nonOTelSpanEncoder) encodeSpan(
 	encodeAttributes(e.attributesPrefix, &document, span.Attributes(), idx)
 	document.AddEvents(e.eventsPrefix, span.Events())
 	return document.Serialize(buf, e.dedot)
-}
-
-type ecsDataPointsEncoder struct{}
-
-func (ecsDataPointsEncoder) encodeMetrics(
-	ec encodingContext,
-	dataPoints []datapoints.DataPoint,
-	validationErrors *[]error,
-	idx elasticsearch.Index,
-	buf *bytes.Buffer,
-) (map[string]string, error) {
-	var document objmodel.Document
-	ecsmapping.EncodeResource(
-		ec.resource,
-		&document,
-		false, // setAgentFields
-		false, // setHostOSType
-	)
-	ecsmapping.EncodeScope(ec.scope, &document)
-	ecsmapping.EncodeDataPoints(dataPoints, &document, validationErrors)
-	addDataStreamAttributes(&document, "", idx)
-	err := document.Serialize(buf, true)
-	return document.DynamicTemplates(), err
 }
 
 func addDataStreamAttributes(document *objmodel.Document, key string, idx elasticsearch.Index) {

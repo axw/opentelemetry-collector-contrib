@@ -47,6 +47,7 @@ var resourceAttrsConversionMap = map[string]string{
 func EncodeResource(
 	resource pcommon.Resource, doc *objmodel.Document,
 	setAgentFields, setHostOSType bool,
+	setUnmappedAttribute func(doc *objmodel.Document, k string, v pcommon.Value),
 ) {
 	var sdkName, sdkLanguage, sdkVersion pcommon.Value
 	var distroName, distroVersion pcommon.Value
@@ -83,7 +84,7 @@ func EncodeResource(
 		} else {
 			// TODO add attribute with original name for ECS,
 			// different name for Elastic APM
-			doc.AddAttribute(k, v)
+			setUnmappedAttribute(doc, k, v)
 		}
 		return true
 	})

@@ -200,6 +200,7 @@ const (
 	MappingOTel
 	MappingRaw
 	MappingBodyMap
+	MappingElasticAPM
 )
 
 var (
@@ -219,6 +220,8 @@ func (m MappingMode) String() string {
 		return "raw"
 	case MappingBodyMap:
 		return "bodymap"
+	case MappingElasticAPM:
+		return "elasticapm"
 	default:
 		return ""
 	}
@@ -232,6 +235,7 @@ var mappingModes = func() map[string]MappingMode {
 		MappingOTel,
 		MappingRaw,
 		MappingBodyMap,
+		MappingElasticAPM,
 	} {
 		table[strings.ToLower(m.String())] = m
 	}

@@ -13,9 +13,11 @@ import (
 
 // EncodeLogRecord encodes a log record to doc. Resource, scope,
 // and data stream attributes are expected to be added separately.
-//
-// TODO make handling of unknown attributes injectable for Elastic APM.
-func EncodeLogRecord(record plog.LogRecord, doc *objmodel.Document) {
+func EncodeLogRecord(
+	record plog.LogRecord,
+	doc *objmodel.Document,
+	setUnmappedAttribute func(doc *objmodel.Document, k string, v pcommon.Value),
+) {
 	// Handle top-level fields.
 	if record.Timestamp() != 0 {
 		doc.AddTimestamp("@timestamp", record.Timestamp())
@@ -46,8 +48,7 @@ func EncodeLogRecord(record plog.LogRecord, doc *objmodel.Document) {
 		case semconv.AttributeExceptionEscaped:
 			doc.AddAttribute("event.error.exception.handled", v)
 		default:
-			// TODO for Elastic APM, prefix with labels. and make lower_snake_case
-			doc.AddAttribute(k, v)
+			setUnmappedAttribute(doc, k, v)
 		}
 		return true
 	})

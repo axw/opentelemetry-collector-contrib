@@ -67,6 +67,39 @@ func TestEncodeSpan(t *testing.T) {
 	assert.Equal(t, expectedSpanBody, buf.String())
 }
 
+func TestEncodeSpan_ElasticAPM(t *testing.T) {
+	encoder, _ := newEncoder(MappingElasticAPM)
+	td := mockResourceSpans()
+	var buf bytes.Buffer
+	err := encoder.encodeSpan(
+		encodingContext{
+			resource: td.ResourceSpans().At(0).Resource(),
+			scope:    td.ResourceSpans().At(0).ScopeSpans().At(0).Scope(),
+		},
+		td.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0),
+		elasticsearch.Index{}, &buf,
+	)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{
+		"@timestamp":"2023-04-19T03:04:05.000000006Z",
+		"trace":{"id":"01020304050607080807060504030201"},
+		"span":{"id":"1920212223242526"},
+		"agent":{"name":"otlp"},
+		"service":{
+			"name":"some-service",
+			"version":"env-version-1234",
+			"environment":"BETA",
+			"node":{"name":"23"},
+			"framework": {
+				"name": "io.opentelemetry.rabbitmq-2.7",
+				"version": "1.30.0-alpha"
+			}
+		},
+		"cloud":{"provider":"aws","service":{"name":"aws_elastic_beanstalk"}},
+		"labels":{"service_instance_id":"23"}
+	}`, buf.String())
+}
+
 func TestEncodeLog(t *testing.T) {
 	t.Run("empty timestamp with observedTimestamp override", func(t *testing.T) {
 		encoder, _ := newEncoder(MappingNone)

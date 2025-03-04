@@ -425,6 +425,11 @@ func BoolValue(b bool) Value {
 	return Value{kind: KindBool, ui: v}
 }
 
+// ObjectValue returns a value for an object represented as a Document.
+func ObjectValue(d Document) Value {
+	return Value{kind: KindObject, doc: d}
+}
+
 // ArrValue combines multiple values into an array value.
 func ArrValue(values ...Value) Value {
 	return Value{kind: KindArr, arr: values}
@@ -457,7 +462,7 @@ func ValueFromAttribute(attr pcommon.Value) Value {
 		return ArrValue(sub...)
 	case pcommon.ValueTypeMap:
 		sub := DocumentFromAttributes(attr.Map())
-		return Value{kind: KindObject, doc: sub}
+		return ObjectValue(sub)
 	default:
 		return nilValue
 	}
