@@ -23,16 +23,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/kafkaexporter/internal/metadata"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka/configkafka"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/kafka/topic"
 )
-
-func TestNewExporter_err_version(t *testing.T) {
-	c := Config{ProtocolVersion: "0.0.0", Encoding: defaultEncoding}
-	texp := newTracesExporter(c, exportertest.NewNopSettings(metadata.Type))
-	err := texp.start(context.Background(), componenttest.NewNopHost())
-	assert.Error(t, err)
-}
 
 func TestNewExporter_err_encoding(t *testing.T) {
 	c := Config{Encoding: "foo"}
@@ -40,13 +33,6 @@ func TestNewExporter_err_encoding(t *testing.T) {
 	assert.NotNil(t, texp)
 	err := texp.start(context.Background(), componenttest.NewNopHost())
 	assert.EqualError(t, err, errUnrecognizedEncoding.Error())
-}
-
-func TestNewMetricsExporter_err_version(t *testing.T) {
-	c := Config{ProtocolVersion: "0.0.0", Encoding: defaultEncoding}
-	mexp := newMetricsExporter(c, exportertest.NewNopSettings(metadata.Type))
-	err := mexp.start(context.Background(), componenttest.NewNopHost())
-	assert.Error(t, err)
 }
 
 func TestNewMetricsExporter_err_encoding(t *testing.T) {
@@ -74,14 +60,6 @@ func TestMetricsExporter_encoding_extension(t *testing.T) {
 	err := texp.start(context.Background(), &testComponentHost{})
 	assert.Error(t, err)
 	assert.NotContains(t, err.Error(), errUnrecognizedEncoding.Error())
-}
-
-func TestNewLogsExporter_err_version(t *testing.T) {
-	c := Config{ProtocolVersion: "0.0.0", Encoding: defaultEncoding}
-	lexp := newLogsExporter(c, exportertest.NewNopSettings(metadata.Type))
-	require.NotNil(t, lexp)
-	err := lexp.start(context.Background(), componenttest.NewNopHost())
-	assert.Error(t, err)
 }
 
 func TestNewLogsExporter_err_encoding(t *testing.T) {
@@ -113,19 +91,20 @@ func TestLogsExporter_encoding_extension(t *testing.T) {
 
 func TestNewExporter_err_auth_type(t *testing.T) {
 	c := Config{
-		ProtocolVersion: "2.0.0",
-		Authentication: kafka.Authentication{
-			TLS: &configtls.ClientConfig{
-				Config: configtls.Config{
-					CAFile: "/nonexistent",
+		ClientConfig: configkafka.ClientConfig{
+			Authentication: configkafka.AuthenticationConfig{
+				TLS: &configtls.ClientConfig{
+					Config: configtls.Config{
+						CAFile: "/nonexistent",
+					},
 				},
+			},
+			Metadata: configkafka.MetadataConfig{
+				Full: false,
 			},
 		},
 		Encoding: defaultEncoding,
-		Metadata: Metadata{
-			Full: false,
-		},
-		Producer: Producer{
+		Producer: configkafka.ProducerConfig{
 			Compression: "none",
 		},
 	}
@@ -146,7 +125,7 @@ func TestNewExporter_err_auth_type(t *testing.T) {
 func TestNewExporter_err_compression(t *testing.T) {
 	c := Config{
 		Encoding: defaultEncoding,
-		Producer: Producer{
+		Producer: configkafka.ProducerConfig{
 			Compression: "idk",
 		},
 	}

@@ -16,8 +16,7 @@ import (
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 	"go.opentelemetry.io/collector/confmap/xconfmap"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/kafkaexporter"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka/configkafka"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kafkareceiver/internal/metadata"
 )
 
@@ -35,38 +34,42 @@ func TestLoadConfig(t *testing.T) {
 		{
 			id: component.NewIDWithName(metadata.Type, ""),
 			expected: &Config{
-				Topic:                                "spans",
-				Encoding:                             "otlp_proto",
-				Brokers:                              []string{"foo:123", "bar:456"},
-				ResolveCanonicalBootstrapServersOnly: true,
-				ClientID:                             "otel-collector",
-				GroupID:                              "otel-collector",
-				InitialOffset:                        "latest",
-				SessionTimeout:                       10 * time.Second,
-				HeartbeatInterval:                    3 * time.Second,
-				Authentication: kafka.Authentication{
-					TLS: &configtls.ClientConfig{
-						Config: configtls.Config{
-							CAFile:   "ca.pem",
-							CertFile: "cert.pem",
-							KeyFile:  "key.pem",
+				ClientConfig: configkafka.ClientConfig{
+					Brokers:                              []string{"foo:123", "bar:456"},
+					ResolveCanonicalBootstrapServersOnly: true,
+					ClientID:                             "otel-collector",
+					Authentication: configkafka.AuthenticationConfig{
+						TLS: &configtls.ClientConfig{
+							Config: configtls.Config{
+								CAFile:   "ca.pem",
+								CertFile: "cert.pem",
+								KeyFile:  "key.pem",
+							},
+						},
+					},
+					Metadata: configkafka.MetadataConfig{
+						Full: true,
+						Retry: configkafka.MetadataRetryConfig{
+							Max:     10,
+							Backoff: time.Second * 5,
 						},
 					},
 				},
-				Metadata: kafkaexporter.Metadata{
-					Full: true,
-					Retry: kafkaexporter.MetadataRetry{
-						Max:     10,
-						Backoff: time.Second * 5,
+				ConsumerConfig: configkafka.ConsumerConfig{
+					GroupID:           "otel-collector",
+					InitialOffset:     "latest",
+					SessionTimeout:    10 * time.Second,
+					HeartbeatInterval: 3 * time.Second,
+					AutoCommit: configkafka.AutoCommitConfig{
+						Enable:   true,
+						Interval: 1 * time.Second,
 					},
+					MinFetchSize:     1,
+					DefaultFetchSize: 1048576,
+					MaxFetchSize:     0,
 				},
-				AutoCommit: AutoCommit{
-					Enable:   true,
-					Interval: 1 * time.Second,
-				},
-				MinFetchSize:     1,
-				DefaultFetchSize: 1048576,
-				MaxFetchSize:     0,
+				Topic:    "spans",
+				Encoding: "otlp_proto",
 				ErrorBackOff: configretry.BackOffConfig{
 					Enabled: false,
 				},
@@ -75,37 +78,41 @@ func TestLoadConfig(t *testing.T) {
 		{
 			id: component.NewIDWithName(metadata.Type, "logs"),
 			expected: &Config{
-				Topic:             "logs",
-				Encoding:          "direct",
-				Brokers:           []string{"coffee:123", "foobar:456"},
-				ClientID:          "otel-collector",
-				GroupID:           "otel-collector",
-				InitialOffset:     "earliest",
-				SessionTimeout:    45 * time.Second,
-				HeartbeatInterval: 15 * time.Second,
-				Authentication: kafka.Authentication{
-					TLS: &configtls.ClientConfig{
-						Config: configtls.Config{
-							CAFile:   "ca.pem",
-							CertFile: "cert.pem",
-							KeyFile:  "key.pem",
+				ClientConfig: configkafka.ClientConfig{
+					Brokers:  []string{"coffee:123", "foobar:456"},
+					ClientID: "otel-collector",
+					Authentication: configkafka.AuthenticationConfig{
+						TLS: &configtls.ClientConfig{
+							Config: configtls.Config{
+								CAFile:   "ca.pem",
+								CertFile: "cert.pem",
+								KeyFile:  "key.pem",
+							},
+						},
+					},
+					Metadata: configkafka.MetadataConfig{
+						Full: true,
+						Retry: configkafka.MetadataRetryConfig{
+							Max:     10,
+							Backoff: time.Second * 5,
 						},
 					},
 				},
-				Metadata: kafkaexporter.Metadata{
-					Full: true,
-					Retry: kafkaexporter.MetadataRetry{
-						Max:     10,
-						Backoff: time.Second * 5,
+				ConsumerConfig: configkafka.ConsumerConfig{
+					GroupID:           "otel-collector",
+					InitialOffset:     "earliest",
+					SessionTimeout:    45 * time.Second,
+					HeartbeatInterval: 15 * time.Second,
+					AutoCommit: configkafka.AutoCommitConfig{
+						Enable:   true,
+						Interval: 1 * time.Second,
 					},
+					MinFetchSize:     1,
+					DefaultFetchSize: 1048576,
+					MaxFetchSize:     0,
 				},
-				AutoCommit: AutoCommit{
-					Enable:   true,
-					Interval: 1 * time.Second,
-				},
-				MinFetchSize:     1,
-				DefaultFetchSize: 1048576,
-				MaxFetchSize:     0,
+				Topic:    "logs",
+				Encoding: "direct",
 				ErrorBackOff: configretry.BackOffConfig{
 					Enabled:         true,
 					InitialInterval: 1 * time.Second,

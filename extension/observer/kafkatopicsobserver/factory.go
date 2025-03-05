@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/collector/extension"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/kafkatopicsobserver/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka/configkafka"
 )
 
 const (
@@ -32,9 +33,7 @@ func NewFactory() extension.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		Brokers:            []string{defaultBroker},
-		SessionTimeout:     defaultSessionTimeout,
-		HeartbeatInterval:  defaultHeartbeatInterval,
+		ClientConfig:       configkafka.NewDefaultClientConfig(),
 		TopicsSyncInterval: defaultTopicsSyncInterval,
 	}
 }

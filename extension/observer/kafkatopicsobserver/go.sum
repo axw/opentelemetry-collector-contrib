@@ -30,6 +30,8 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.33.14 h1:TzeR06UCMUq+KA3bDkujxK1GVGy
 github.com/aws/aws-sdk-go-v2/service/sts v1.33.14/go.mod h1:dspXf/oYWGWo6DEvj98wpaTeqt5+DMidZD0A9BYTizc=
 github.com/aws/smithy-go v1.22.2 h1:6D9hW43xKFrRx/tXXfAlIZc4JI+yQe6snnWcQyxSyLQ=
 github.com/aws/smithy-go v1.22.2/go.mod h1:irrKGvNn1InZwb2d7fkIRNucdfwR8R+Ts3wxYa/cJHg=
+github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
+github.com/cenkalti/backoff/v4 v4.3.0/go.mod h1:Y3VNntkOUPxTVeUxJ/G5vcM//AlwfmyYozVcomhLiZE=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
@@ -142,6 +144,8 @@ go.opentelemetry.io/collector/component/componenttest v0.121.0 h1:4q1/7WnP9LPKaY
 go.opentelemetry.io/collector/component/componenttest v0.121.0/go.mod h1:H7bEXDPMYNeWcHal0xyKlVfRPByVxale7hCJ+Myjq3Q=
 go.opentelemetry.io/collector/config/configopaque v1.27.0 h1:MuUKdcmB3vbxXnzi++G18eLkJq3AtzKBrfIPGhmfwl4=
 go.opentelemetry.io/collector/config/configopaque v1.27.0/go.mod h1:GYQiC8IejBcwE8z0O4DwbBR/Hf6U7d8DTf+cszyqwFs=
+go.opentelemetry.io/collector/config/configretry v1.27.0 h1:mM0X/7eiWRVmYTZJ5QTtly10uJWHnctIFuYST6tc/zU=
+go.opentelemetry.io/collector/config/configretry v1.27.0/go.mod h1:8gzFQ0qzKLYvzP2sNPwsB9gwzKSEls649yANmt/d6yE=
 go.opentelemetry.io/collector/config/configtls v1.27.0 h1:NqU91J5yRIs5hwUEZBDTmG7XnsLZGS6JpedxgY00srg=
 go.opentelemetry.io/collector/config/configtls v1.27.0/go.mod h1:i6kX7oboR1sO+J+hDImtKH4GnNCFiwcTAr2fzGRP0kI=
 go.opentelemetry.io/collector/confmap v1.27.0 h1:OIjPcjij1NxkVQsQVmHro4+t1eYNFiUGib9+J9YBZhM=

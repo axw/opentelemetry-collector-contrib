@@ -215,7 +215,7 @@ func newSaramaProducer(ctx context.Context, config Config) (sarama.SyncProducer,
 	// These setting are required by the sarama.SyncProducer implementation.
 	c.Producer.Return.Successes = true
 	c.Producer.Return.Errors = true
-	c.Producer.RequiredAcks = config.Producer.RequiredAcks
+	c.Producer.RequiredAcks = sarama.RequiredAcks(config.Producer.RequiredAcks)
 	// Because sarama does not accept a Context for every message, set the Timeout here.
 	c.Producer.Timeout = config.TimeoutSettings.Timeout
 	c.Metadata.Full = config.Metadata.Full
@@ -236,7 +236,7 @@ func newSaramaProducer(ctx context.Context, config Config) (sarama.SyncProducer,
 		c.Version = version
 	}
 
-	if err := kafka.ConfigureAuthentication(ctx, config.Authentication, c); err != nil {
+	if err := kafka.ConfigureSaramaAuthentication(ctx, config.Authentication, c); err != nil {
 		return nil, err
 	}
 

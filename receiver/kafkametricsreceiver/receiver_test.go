@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/collector/receiver/receivertest"
 	"go.opentelemetry.io/collector/scraper"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka/configkafka"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kafkametricsreceiver/internal/metadata"
 )
 
@@ -48,7 +48,7 @@ func TestNewReceiver_invalid_scraper_error(t *testing.T) {
 
 func TestNewReceiver_invalid_auth_error(t *testing.T) {
 	c := createDefaultConfig().(*Config)
-	c.Authentication = kafka.Authentication{
+	c.Authentication = configkafka.AuthenticationConfig{
 		TLS: &configtls.ClientConfig{
 			Config: configtls.Config{
 				CAFile: "/invalid",

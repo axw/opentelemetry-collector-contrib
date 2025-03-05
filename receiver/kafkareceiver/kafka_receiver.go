@@ -26,6 +26,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka/configkafka"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kafkareceiver/internal/metadata"
 )
 
@@ -54,7 +55,7 @@ type kafkaTracesConsumer struct {
 	telemetryBuilder *metadata.TelemetryBuilder
 
 	autocommitEnabled bool
-	messageMarking    MessageMarking
+	messageMarking    MessageMarkingConfig
 	headerExtraction  bool
 	headers           []string
 	minFetchSize      int32
@@ -76,7 +77,7 @@ type kafkaMetricsConsumer struct {
 	telemetryBuilder *metadata.TelemetryBuilder
 
 	autocommitEnabled bool
-	messageMarking    MessageMarking
+	messageMarking    MessageMarkingConfig
 	headerExtraction  bool
 	headers           []string
 	minFetchSize      int32
@@ -98,7 +99,7 @@ type kafkaLogsConsumer struct {
 	telemetryBuilder *metadata.TelemetryBuilder
 
 	autocommitEnabled bool
-	messageMarking    MessageMarking
+	messageMarking    MessageMarkingConfig
 	headerExtraction  bool
 	headers           []string
 	minFetchSize      int32
@@ -161,7 +162,7 @@ func createKafkaClient(ctx context.Context, config Config) (sarama.ConsumerGroup
 			return nil, err
 		}
 	}
-	if err := kafka.ConfigureAuthentication(ctx, config.Authentication, saramaConfig); err != nil {
+	if err := kafka.ConfigureSaramaAuthentication(ctx, config.Authentication, saramaConfig); err != nil {
 		return nil, err
 	}
 	return sarama.NewConsumerGroup(config.Brokers, config.GroupID, saramaConfig)
@@ -487,7 +488,7 @@ type tracesConsumerGroupHandler struct {
 	telemetryBuilder *metadata.TelemetryBuilder
 
 	autocommitEnabled bool
-	messageMarking    MessageMarking
+	messageMarking    MessageMarkingConfig
 	headerExtractor   HeaderExtractor
 	backOff           *backoff.ExponentialBackOff
 }
@@ -505,7 +506,7 @@ type metricsConsumerGroupHandler struct {
 	telemetryBuilder *metadata.TelemetryBuilder
 
 	autocommitEnabled bool
-	messageMarking    MessageMarking
+	messageMarking    MessageMarkingConfig
 	headerExtractor   HeaderExtractor
 	backOff           *backoff.ExponentialBackOff
 }
@@ -523,7 +524,7 @@ type logsConsumerGroupHandler struct {
 	telemetryBuilder *metadata.TelemetryBuilder
 
 	autocommitEnabled bool
-	messageMarking    MessageMarking
+	messageMarking    MessageMarkingConfig
 	headerExtractor   HeaderExtractor
 	backOff           *backoff.ExponentialBackOff
 }
@@ -834,9 +835,9 @@ func newExponentialBackOff(config configretry.BackOffConfig) *backoff.Exponentia
 
 func toSaramaInitialOffset(initialOffset string) (int64, error) {
 	switch initialOffset {
-	case offsetEarliest:
+	case configkafka.EarliestOffset:
 		return sarama.OffsetOldest, nil
-	case offsetLatest:
+	case configkafka.LatestOffset:
 		fallthrough
 	case "":
 		return sarama.OffsetNewest, nil
