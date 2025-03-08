@@ -79,9 +79,8 @@ func TestLoadConfig(t *testing.T) {
 			id: component.NewIDWithName(metadata.Type, "logs"),
 			expected: &Config{
 				ClientConfig: configkafka.ClientConfig{
-					Brokers:                              []string{"coffee:123", "foobar:456"},
-					ResolveCanonicalBootstrapServersOnly: true,
-					ClientID:                             "otel-collector",
+					Brokers:  []string{"coffee:123", "foobar:456"},
+					ClientID: "otel-collector",
 					Authentication: configkafka.AuthenticationConfig{
 						TLS: &configtls.ClientConfig{
 							Config: configtls.Config{
