@@ -29,6 +29,9 @@ kafka/sasl_plain:
 kafka/brokers_required:
   brokers: []
 
+kafka/invalid_protocol_version:
+  protocol_version: none
+
 kafka/sasl_invalid_mechanism:
   auth:
     sasl:

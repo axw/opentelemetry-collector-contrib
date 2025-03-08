@@ -13,12 +13,7 @@ import (
 )
 
 func TestClientConfig(t *testing.T) {
-	t.Parallel()
-
-	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "client_config.yaml"))
-	require.NoError(t, err)
-
-	tests := map[string]struct {
+	testConfig(t, "client_config.yaml", NewDefaultClientConfig, map[string]struct {
 		expected    ClientConfig
 		expectedErr string
 	}{
@@ -74,6 +69,9 @@ func TestClientConfig(t *testing.T) {
 		"brokers_required": {
 			expectedErr: "brokers must be specified",
 		},
+		"invalid_protocol_version": {
+			expectedErr: "invalid protocol version: invalid version `none`",
+		},
 		"sasl_invalid_mechanism": {
 			expectedErr: "auth::sasl: mechanism should be one of 'PLAIN', 'AWS_MSK_IAM', 'AWS_MSK_IAM_OAUTHBEARER', 'SCRAM-SHA-256' or 'SCRAM-SHA-512'. configured value FANCY",
 		},
@@ -86,35 +84,11 @@ func TestClientConfig(t *testing.T) {
 		"sasl_plain_password_required": {
 			expectedErr: "auth::sasl: password is required",
 		},
-		// TODO validate protocol version? sarama checks it I think?
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			cfg := NewDefaultClientConfig()
-
-			sub, err := cm.Sub(component.NewIDWithName(component.MustNewType("kafka"), name).String())
-			require.NoError(t, err)
-			require.NoError(t, sub.Unmarshal(&cfg))
-
-			err = xconfmap.Validate(cfg)
-			if tt.expectedErr != "" {
-				require.EqualError(t, err, tt.expectedErr)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tt.expected, cfg)
-			}
-		})
-	}
+	})
 }
 
 func TestConsumerConfig(t *testing.T) {
-	t.Parallel()
-
-	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "consumer_config.yaml"))
-	require.NoError(t, err)
-
-	tests := map[string]struct {
+	testConfig(t, "consumer_config.yaml", NewDefaultConsumerConfig, map[string]struct {
 		expected    ConsumerConfig
 		expectedErr string
 	}{
@@ -141,11 +115,48 @@ func TestConsumerConfig(t *testing.T) {
 		"invalid_initial_offset": {
 			expectedErr: "initial_offset should be one of 'latest' or 'earliest'. configured value middle",
 		},
-	}
+	})
+}
 
-	for name, tt := range tests {
+func TestProducerConfig(t *testing.T) {
+	testConfig(t, "producer_config.yaml", NewDefaultProducerConfig, map[string]struct {
+		expected    ProducerConfig
+		expectedErr string
+	}{
+		"": {
+			expected: NewDefaultProducerConfig(),
+		},
+		"full": {
+			expected: ProducerConfig{
+				MaxMessageBytes:  1,
+				RequiredAcks:     0,
+				Compression:      "gzip",
+				FlushMaxMessages: 2,
+			},
+		},
+
+		// Invalid configurations
+		"invalid_compression": {
+			expectedErr: `compression should be one of 'none', 'gzip', 'snappy', 'lz4', or 'zstd'. configured value is "brotli"`,
+		},
+		"invalid_required_acks": {
+			expectedErr: "required_acks: expected 'all' (-1), 0, or 1; configured value is 3",
+		},
+	})
+}
+
+func testConfig[ConfigStruct any](t *testing.T, filename string, defaultConfig func() ConfigStruct, testcases map[string]struct {
+	expected    ConfigStruct
+	expectedErr string
+}) {
+	t.Parallel()
+
+	cm, err := confmaptest.LoadConf(filepath.Join("testdata", filename))
+	require.NoError(t, err)
+
+	for name, tt := range testcases {
 		t.Run(name, func(t *testing.T) {
-			cfg := NewDefaultConsumerConfig()
+			cfg := defaultConfig()
 
 			sub, err := cm.Sub(component.NewIDWithName(component.MustNewType("kafka"), name).String())
 			require.NoError(t, err)

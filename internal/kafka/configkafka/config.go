@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/IBM/sarama"
 	"go.opentelemetry.io/collector/config/configtls"
 )
 
@@ -52,6 +53,11 @@ func NewDefaultClientConfig() ClientConfig {
 func (c ClientConfig) Validate() error {
 	if len(c.Brokers) == 0 {
 		return errors.New("brokers must be specified")
+	}
+	if c.ProtocolVersion != "" {
+		if _, err := sarama.ParseKafkaVersion(c.ProtocolVersion); err != nil {
+			return fmt.Errorf("invalid protocol version: %w", err)
+		}
 	}
 	return nil
 }
@@ -164,7 +170,7 @@ func (c ProducerConfig) Validate() error {
 		// Valid compression
 	default:
 		return fmt.Errorf(
-			"compression should be one of 'none', 'gzip', 'snappy', 'lz4', or 'zstd'. configured value %v",
+			"compression should be one of 'none', 'gzip', 'snappy', 'lz4', or 'zstd'. configured value is %q",
 			c.Compression,
 		)
 	}
@@ -173,7 +179,8 @@ func (c ProducerConfig) Validate() error {
 
 // RequiredAcks defines record acknowledgement behavior for for producers.
 //
-// TODO change to a string, deprecate Sarama-specific magic numbers.
+// TODO allow user to specify the string "all" rather than -1, as described at
+// https://docs.confluent.io/platform/current/installation/configuration/producer-configs.html#acks
 type RequiredAcks int
 
 const (
@@ -189,7 +196,7 @@ const (
 
 func (r RequiredAcks) Validate() error {
 	if r < -1 || r > 1 {
-		return fmt.Errorf("required_acks must be between -1 and 1; configured value is %v", r)
+		return fmt.Errorf("expected 'all' (-1), 0, or 1; configured value is %v", r)
 	}
 	return nil
 }
