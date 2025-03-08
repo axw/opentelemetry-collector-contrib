@@ -84,7 +84,7 @@ func (e *kafkaTracesProducer) start(ctx context.Context, host component.Host) er
 		return errUnrecognizedEncoding
 	}
 	producer, err := kafka.NewSaramaSyncProducer(
-		ctx, e.cfg.ClientConfig, e.cfg.ProducerConfig, e.cfg.TimeoutSettings.Timeout,
+		ctx, e.cfg.ClientConfig, e.cfg.Producer, e.cfg.TimeoutSettings.Timeout,
 	)
 	if err != nil {
 		return err
@@ -144,7 +144,7 @@ func (e *kafkaMetricsProducer) start(ctx context.Context, host component.Host) e
 		return errUnrecognizedEncoding
 	}
 	producer, err := kafka.NewSaramaSyncProducer(
-		ctx, e.cfg.ClientConfig, e.cfg.ProducerConfig, e.cfg.TimeoutSettings.Timeout,
+		ctx, e.cfg.ClientConfig, e.cfg.Producer, e.cfg.TimeoutSettings.Timeout,
 	)
 	if err != nil {
 		return err
@@ -204,7 +204,7 @@ func (e *kafkaLogsProducer) start(ctx context.Context, host component.Host) erro
 		return errUnrecognizedEncoding
 	}
 	producer, err := kafka.NewSaramaSyncProducer(
-		ctx, e.cfg.ClientConfig, e.cfg.ProducerConfig, e.cfg.TimeoutSettings.Timeout,
+		ctx, e.cfg.ClientConfig, e.cfg.Producer, e.cfg.TimeoutSettings.Timeout,
 	)
 	if err != nil {
 		return err

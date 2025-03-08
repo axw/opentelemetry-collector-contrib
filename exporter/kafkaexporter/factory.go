@@ -51,7 +51,7 @@ func createDefaultConfig() component.Config {
 		BackOffConfig:   configretry.NewDefaultBackOffConfig(),
 		QueueSettings:   exporterhelper.NewDefaultQueueConfig(),
 		ClientConfig:    configkafka.NewDefaultClientConfig(),
-		ProducerConfig:  configkafka.NewDefaultProducerConfig(),
+		Producer:        configkafka.NewDefaultProducerConfig(),
 		// using an empty topic to track when it has not been set by user, default is based on traces or metrics.
 		Topic:                                "",
 		Encoding:                             defaultEncoding,

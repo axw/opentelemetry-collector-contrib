@@ -13,11 +13,11 @@ import (
 
 // Config defines configuration for Kafka exporter.
 type Config struct {
-	TimeoutSettings            exporterhelper.TimeoutConfig `mapstructure:",squash"` // squash ensures fields are correctly decoded in embedded struct.
-	QueueSettings              exporterhelper.QueueConfig   `mapstructure:"sending_queue"`
-	configkafka.ClientConfig   `mapstructure:",squash"`
-	configkafka.ProducerConfig `mapstructure:"producer"`
-	configretry.BackOffConfig  `mapstructure:"retry_on_failure"`
+	TimeoutSettings           exporterhelper.TimeoutConfig `mapstructure:",squash"` // squash ensures fields are correctly decoded in embedded struct.
+	QueueSettings             exporterhelper.QueueConfig   `mapstructure:"sending_queue"`
+	configretry.BackOffConfig `mapstructure:"retry_on_failure"`
+	configkafka.ClientConfig  `mapstructure:",squash"`
+	Producer                  configkafka.ProducerConfig `mapstructure:"producer"`
 
 	// The name of the kafka topic to export to (default otlp_spans for traces, otlp_metrics for metrics)
 	Topic string `mapstructure:"topic"`

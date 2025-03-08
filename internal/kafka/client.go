@@ -81,6 +81,9 @@ func NewSaramaSyncProducer(
 // NewSaramaClientConfig returns a Sarama client config, based on the given config.
 func NewSaramaClientConfig(ctx context.Context, config configkafka.ClientConfig) (*sarama.Config, error) {
 	saramaConfig := sarama.NewConfig()
+	saramaConfig.Metadata.Full = config.Metadata.Full
+	saramaConfig.Metadata.Retry.Max = config.Metadata.Retry.Max
+	saramaConfig.Metadata.Retry.Backoff = config.Metadata.Retry.Backoff
 	if config.ResolveCanonicalBootstrapServersOnly {
 		saramaConfig.Net.ResolveCanonicalBootstrapServers = true
 	}
