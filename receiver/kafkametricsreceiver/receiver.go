@@ -37,26 +37,11 @@ var newMetricsReceiver = func(
 	params receiver.Settings,
 	consumer consumer.Metrics,
 ) (receiver.Metrics, error) {
-	sc := sarama.NewConfig()
-	sc.ClientID = config.ClientID
-	if config.ResolveCanonicalBootstrapServersOnly {
-		sc.Net.ResolveCanonicalBootstrapServers = true
-	}
-	if config.ProtocolVersion != "" {
-		version, err := sarama.ParseKafkaVersion(config.ProtocolVersion)
-		if err != nil {
-			return nil, err
-		}
-		sc.Version = version
-	}
-
-	if config.RefreshFrequency != 0 {
-		sc.Metadata.RefreshFrequency = config.RefreshFrequency
-	}
-
-	if err := kafka.ConfigureAuthentication(ctx, config.Authentication, sc); err != nil {
+	sc, err := kafka.NewSaramaClientConfig(ctx, config.ClientConfig)
+	if err != nil {
 		return nil, err
 	}
+
 	scraperControllerOptions := make([]scraperhelper.ControllerOption, 0, len(config.Scrapers))
 	for _, scraper := range config.Scrapers {
 		if s, ok := allScrapers[scraper]; ok {

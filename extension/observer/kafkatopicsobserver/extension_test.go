@@ -16,6 +16,7 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/kafkatopicsobserver/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka/configkafka"
 )
 
 type MockClusterAdmin struct {
@@ -37,7 +38,7 @@ func TestCollectEndpointsDefaultConfig(t *testing.T) {
 	mockAdmin := &MockClusterAdmin{}
 	// Override the createKafkaClusterAdmin function to return the mock admin
 	originalCreateKafkaClusterAdmin := createKafkaClusterAdmin
-	createKafkaClusterAdmin = func(_ context.Context, _ Config) (sarama.ClusterAdmin, error) {
+	createKafkaClusterAdmin = func(context.Context, configkafka.ClientConfig) (sarama.ClusterAdmin, error) {
 		return mockAdmin, nil
 	}
 
@@ -78,7 +79,7 @@ func TestCollectEndpointsAllConfigSettings(t *testing.T) {
 
 	// Override the createKafkaClusterAdmin function to return the mock admin
 	originalCreateKafkaClusterAdmin := createKafkaClusterAdmin
-	createKafkaClusterAdmin = func(_ context.Context, _ Config) (sarama.ClusterAdmin, error) {
+	createKafkaClusterAdmin = func(context.Context, configkafka.ClientConfig) (sarama.ClusterAdmin, error) {
 		return mockAdmin, nil
 	}
 

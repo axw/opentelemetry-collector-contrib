@@ -36,8 +36,6 @@ const (
 	attrPartition    = "partition"
 )
 
-var errInvalidInitialOffset = errors.New("invalid initial offset")
-
 var errMemoryLimiterDataRefused = errors.New("data refused due to high memory usage")
 
 // kafkaTracesConsumer uses sarama to consume and handle messages from kafka.
@@ -135,38 +133,6 @@ func newTracesReceiver(config Config, set receiver.Settings, nextConsumer consum
 	}, nil
 }
 
-func createKafkaClient(ctx context.Context, config Config) (sarama.ConsumerGroup, error) {
-	saramaConfig := sarama.NewConfig()
-	saramaConfig.ClientID = config.ClientID
-	saramaConfig.Metadata.Full = config.Metadata.Full
-	saramaConfig.Metadata.Retry.Max = config.Metadata.Retry.Max
-	saramaConfig.Metadata.Retry.Backoff = config.Metadata.Retry.Backoff
-	saramaConfig.Consumer.Offsets.AutoCommit.Enable = config.AutoCommit.Enable
-	saramaConfig.Consumer.Offsets.AutoCommit.Interval = config.AutoCommit.Interval
-	saramaConfig.Consumer.Group.Session.Timeout = config.SessionTimeout
-	saramaConfig.Consumer.Group.Heartbeat.Interval = config.HeartbeatInterval
-	saramaConfig.Consumer.Fetch.Min = config.MinFetchSize
-	saramaConfig.Consumer.Fetch.Default = config.DefaultFetchSize
-	saramaConfig.Consumer.Fetch.Max = config.MaxFetchSize
-
-	var err error
-	if saramaConfig.Consumer.Offsets.Initial, err = toSaramaInitialOffset(config.InitialOffset); err != nil {
-		return nil, err
-	}
-	if config.ResolveCanonicalBootstrapServersOnly {
-		saramaConfig.Net.ResolveCanonicalBootstrapServers = true
-	}
-	if config.ProtocolVersion != "" {
-		if saramaConfig.Version, err = sarama.ParseKafkaVersion(config.ProtocolVersion); err != nil {
-			return nil, err
-		}
-	}
-	if err := kafka.ConfigureAuthentication(ctx, config.Authentication, saramaConfig); err != nil {
-		return nil, err
-	}
-	return sarama.NewConsumerGroup(config.Brokers, config.GroupID, saramaConfig)
-}
-
 func (c *kafkaTracesConsumer) Start(_ context.Context, host component.Host) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancelConsumeLoop = cancel
@@ -196,9 +162,11 @@ func (c *kafkaTracesConsumer) Start(_ context.Context, host component.Host) erro
 	}
 	// consumerGroup may be set in tests to inject fake implementation.
 	if c.consumerGroup == nil {
-		if c.consumerGroup, err = createKafkaClient(ctx, c.config); err != nil {
+		consumerGroup, err := kafka.NewSaramaConsumerGroup(ctx, c.config.ClientConfig, c.config.ConsumerConfig)
+		if err != nil {
 			return err
 		}
+		c.consumerGroup = consumerGroup
 	}
 	consumerGroup := &tracesConsumerGroupHandler{
 		logger:            c.settings.Logger,
@@ -305,9 +273,11 @@ func (c *kafkaMetricsConsumer) Start(_ context.Context, host component.Host) err
 	}
 	// consumerGroup may be set in tests to inject fake implementation.
 	if c.consumerGroup == nil {
-		if c.consumerGroup, err = createKafkaClient(ctx, c.config); err != nil {
+		consumerGroup, err := kafka.NewSaramaConsumerGroup(ctx, c.config.ClientConfig, c.config.ConsumerConfig)
+		if err != nil {
 			return err
 		}
+		c.consumerGroup = consumerGroup
 	}
 	metricsConsumerGroup := &metricsConsumerGroupHandler{
 		logger:            c.settings.Logger,
@@ -417,9 +387,11 @@ func (c *kafkaLogsConsumer) Start(_ context.Context, host component.Host) error 
 	}
 	// consumerGroup may be set in tests to inject fake implementation.
 	if c.consumerGroup == nil {
-		if c.consumerGroup, err = createKafkaClient(ctx, c.config); err != nil {
+		consumerGroup, err := kafka.NewSaramaConsumerGroup(ctx, c.config.ClientConfig, c.config.ConsumerConfig)
+		if err != nil {
 			return err
 		}
+		c.consumerGroup = consumerGroup
 	}
 	logsConsumerGroup := &logsConsumerGroupHandler{
 		logger:            c.settings.Logger,
@@ -830,19 +802,6 @@ func newExponentialBackOff(config configretry.BackOffConfig) *backoff.Exponentia
 	backOff.MaxElapsedTime = config.MaxElapsedTime
 	backOff.Reset()
 	return backOff
-}
-
-func toSaramaInitialOffset(initialOffset string) (int64, error) {
-	switch initialOffset {
-	case offsetEarliest:
-		return sarama.OffsetOldest, nil
-	case offsetLatest:
-		fallthrough
-	case "":
-		return sarama.OffsetNewest, nil
-	default:
-		return 0, errInvalidInitialOffset
-	}
 }
 
 // loadEncodingExtension tries to load an available extension for the given encoding.

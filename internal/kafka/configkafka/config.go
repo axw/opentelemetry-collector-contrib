@@ -45,13 +45,7 @@ func NewDefaultClientConfig() ClientConfig {
 	return ClientConfig{
 		Brokers:  []string{"localhost:9092"},
 		ClientID: "otel-collector",
-		Metadata: MetadataConfig{
-			Full: true,
-			Retry: MetadataRetryConfig{
-				Max:     3,
-				Backoff: time.Millisecond * 250,
-			},
-		},
+		Metadata: NewDefaultMetadataConfig(),
 	}
 }
 
@@ -227,6 +221,9 @@ type MetadataConfig struct {
 	// This configuration is useful to avoid race conditions when broker
 	// is starting at the same time as collector.
 	Retry MetadataRetryConfig `mapstructure:"retry"`
+
+	// TODO add RefreshFrequency, and deprecate
+	// kafkametricsreceiver.Config.RefreshFrequency.
 }
 
 // MetadataRetryConfig defines retry configuration for Metadata.
@@ -237,6 +234,16 @@ type MetadataRetryConfig struct {
 	// How long to wait for leader election to occur before retrying
 	// (default 250ms). Similar to the JVM's `retry.backoff.ms`.
 	Backoff time.Duration `mapstructure:"backoff"`
+}
+
+func NewDefaultMetadataConfig() MetadataConfig {
+	return MetadataConfig{
+		Full: true,
+		Retry: MetadataRetryConfig{
+			Max:     3,
+			Backoff: time.Millisecond * 250,
+		},
+	}
 }
 
 // AuthenticationConfig defines authentication-related configuration.

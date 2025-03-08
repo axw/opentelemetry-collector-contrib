@@ -39,7 +39,7 @@ type kafkaTopicsObserver struct {
 func newObserver(logger *zap.Logger, config *Config) (extension.Extension, error) {
 	kCtx, cancel := context.WithCancel(context.Background())
 
-	admin, err := createKafkaClusterAdmin(kCtx, *config)
+	admin, err := createKafkaClusterAdmin(kCtx, config.ClientConfig)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("could not create kafka cluster admin: %w", err)
@@ -128,20 +128,5 @@ func (k *kafkaTopicsObserver) Shutdown(_ context.Context) error {
 	return nil
 }
 
-var createKafkaClusterAdmin = func(ctx context.Context, config Config) (sarama.ClusterAdmin, error) {
-	saramaConfig := sarama.NewConfig()
-
-	var err error
-	if config.ResolveCanonicalBootstrapServersOnly {
-		saramaConfig.Net.ResolveCanonicalBootstrapServers = true
-	}
-	if config.ProtocolVersion != "" {
-		if saramaConfig.Version, err = sarama.ParseKafkaVersion(config.ProtocolVersion); err != nil {
-			return nil, err
-		}
-	}
-	if err := kafka.ConfigureSaramaAuthentication(ctx, config.Authentication, saramaConfig); err != nil {
-		return nil, err
-	}
-	return sarama.NewClusterAdmin(config.Brokers, saramaConfig)
-}
+// TODO inject this into newObserver, rather than have tests patch this var
+var createKafkaClusterAdmin = kafka.NewSaramaClusterAdminClient

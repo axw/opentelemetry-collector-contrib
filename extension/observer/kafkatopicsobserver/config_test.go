@@ -28,24 +28,22 @@ func TestLoadConfig(t *testing.T) {
 		expectedError string
 	}{
 		{
-			id:            component.NewID(metadata.Type),
-			expected:      NewFactory().CreateDefaultConfig(),
-			expectedError: "protocol_version must be specified; topic_regex must be specified",
-		},
-		{
 			id: component.NewIDWithName(metadata.Type, "all_settings"),
 			expected: &Config{
-				ProtocolVersion:                      "3.7.0",
-				Brokers:                              []string{"1.2.3.4:9092", "2.3.4.5:9092"},
-				TopicRegex:                           "^topic[0-9]$",
-				TopicsSyncInterval:                   5 * time.Second,
-				ResolveCanonicalBootstrapServersOnly: false,
-				Authentication: configkafka.AuthenticationConfig{
-					PlainText: &configkafka.PlainTextConfig{
-						Username: "fooUser",
-						Password: "fooPassword",
+				ClientConfig: configkafka.ClientConfig{
+					Brokers:         []string{"1.2.3.4:9092", "2.3.4.5:9092"},
+					ProtocolVersion: "3.7.0",
+					ClientID:        "otel-collector",
+					Metadata:        configkafka.NewDefaultClientConfig().Metadata,
+					Authentication: configkafka.AuthenticationConfig{
+						PlainText: &configkafka.PlainTextConfig{
+							Username: "fooUser",
+							Password: "fooPassword",
+						},
 					},
 				},
+				TopicRegex:         "^topic[0-9]$",
+				TopicsSyncInterval: 5 * time.Second,
 			},
 		},
 	}
@@ -64,39 +62,21 @@ func TestLoadConfig(t *testing.T) {
 
 func TestValidateConfig(t *testing.T) {
 	cfg := &Config{
-		Brokers:         []string{},
-		ProtocolVersion: "3.7.0",
-		TopicRegex:      "^test[0-9]$",
-	}
-	assert.Equal(t, "brokers list must be specified; topics_sync_interval must be greater than 0", xconfmap.Validate(cfg).Error())
-
-	cfg = &Config{
-		Brokers:            []string{"1.2.3.4:9092"},
-		ProtocolVersion:    "",
-		TopicRegex:         "^topic[0-9]$",
-		TopicsSyncInterval: 1 * time.Second,
-	}
-	assert.Equal(t, "protocol_version must be specified", xconfmap.Validate(cfg).Error())
-
-	cfg = &Config{
-		Brokers:            []string{"1.2.3.4:9092"},
-		ProtocolVersion:    "3.7.0",
+		ClientConfig:       configkafka.NewDefaultClientConfig(),
 		TopicRegex:         "",
 		TopicsSyncInterval: 1 * time.Second,
 	}
 	assert.Equal(t, "topic_regex must be specified", xconfmap.Validate(cfg).Error())
 
 	cfg = &Config{
-		Brokers:            []string{"1.2.3.4:9092"},
-		ProtocolVersion:    "3.7.0",
+		ClientConfig:       configkafka.NewDefaultClientConfig(),
 		TopicRegex:         "^topic[0-9]$",
 		TopicsSyncInterval: 0 * time.Second,
 	}
 	assert.Equal(t, "topics_sync_interval must be greater than 0", xconfmap.Validate(cfg).Error())
 
 	cfg = &Config{
-		Brokers:            []string{"1.2.3.4:9092"},
-		ProtocolVersion:    "3.7.0",
+		ClientConfig:       configkafka.NewDefaultClientConfig(),
 		TopicRegex:         "^topic[0-9]$",
 		TopicsSyncInterval: 1 * time.Second,
 	}
