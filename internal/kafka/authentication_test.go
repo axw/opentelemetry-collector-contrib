@@ -179,3 +179,15 @@ func TestAuthentication(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigureSaramaAuthentication_TLS(t *testing.T) {
+	auth := configkafka.AuthenticationConfig{
+		TLS: &configtls.ClientConfig{
+			Config: configtls.Config{
+				CAFile: "/nonexistent",
+			},
+		},
+	}
+	err := ConfigureSaramaAuthentication(context.Background(), auth, &sarama.Config{})
+	require.ErrorContains(t, err, "failed to load TLS config")
+}
