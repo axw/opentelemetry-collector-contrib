@@ -31,9 +31,9 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/kafkaexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal/textutils"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/kafka/configkafka"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kafkareceiver/internal/metadata"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kafkareceiver/internal/metadatatest"
 )
@@ -63,7 +63,7 @@ func TestNewTracesReceiver_encoding_err(t *testing.T) {
 func TestNewTracesReceiver_err_auth_type(t *testing.T) {
 	c := Config{
 		ProtocolVersion: "2.0.0",
-		Authentication: kafka.Authentication{
+		Authentication: configkafka.AuthenticationConfig{
 			TLS: &configtls.ClientConfig{
 				Config: configtls.Config{
 					CAFile: "/nonexistent",
@@ -71,7 +71,7 @@ func TestNewTracesReceiver_err_auth_type(t *testing.T) {
 			},
 		},
 		Encoding: defaultEncoding,
-		Metadata: kafkaexporter.Metadata{
+		Metadata: configkafka.MetadataConfig{
 			Full: false,
 		},
 	}
@@ -430,7 +430,7 @@ func TestNewMetricsExporter_err_auth_type(t *testing.T) {
 			},
 		},
 		Encoding: defaultEncoding,
-		Metadata: kafkaexporter.Metadata{
+		Metadata: configkafka.MetadataConfig{
 			Full: false,
 		},
 	}
@@ -775,7 +775,7 @@ func TestNewLogsExporter_err_auth_type(t *testing.T) {
 			},
 		},
 		Encoding: defaultEncoding,
-		Metadata: kafkaexporter.Metadata{
+		Metadata: configkafka.MetadataConfig{
 			Full: false,
 		},
 	}

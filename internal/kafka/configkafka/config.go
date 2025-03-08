@@ -126,22 +126,6 @@ type AutoCommitConfig struct {
 	Interval time.Duration `mapstructure:"interval"`
 }
 
-type MessageMarkingConfig struct {
-	// If true, the messages are marked after the pipeline execution
-	After bool `mapstructure:"after"`
-
-	// If false, only the successfully processed messages are marked, it has no impact if
-	// After is set to false.
-	// Note: this can block the entire partition in case a message processing returns
-	// a permanent error.
-	OnError bool `mapstructure:"on_error"`
-}
-
-type HeaderExtractionConfig struct {
-	ExtractHeaders bool     `mapstructure:"extract_headers"`
-	Headers        []string `mapstructure:"headers"`
-}
-
 type ProducerConfig struct {
 	// Maximum message bytes the producer will accept to produce (default 1000000)
 	MaxMessageBytes int `mapstructure:"max_message_bytes"`
@@ -221,9 +205,6 @@ type MetadataConfig struct {
 	// This configuration is useful to avoid race conditions when broker
 	// is starting at the same time as collector.
 	Retry MetadataRetryConfig `mapstructure:"retry"`
-
-	// TODO add RefreshFrequency, and deprecate
-	// kafkametricsreceiver.Config.RefreshFrequency.
 }
 
 // MetadataRetryConfig defines retry configuration for Metadata.
