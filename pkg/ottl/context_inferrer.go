@@ -20,9 +20,9 @@ var defaultContextInferPriority = []string{
 	"metric",
 	"spanevent",
 	"span",
-	"resource",
 	"scope",
 	"instrumentation_scope",
+	"resource",
 }
 
 // contextInferrer is an interface used to infer the OTTL context from statements.
@@ -31,6 +31,8 @@ type contextInferrer interface {
 	inferFromStatements(statements []string) (string, error)
 	// inferFromConditions returns the OTTL context inferred from the given conditions.
 	inferFromConditions(conditions []string) (string, error)
+	// inferFromValueExpressions returns the OTTL context inferred from the given conditions.
+	inferFromValueExpressions(expressions []string) (string, error)
 }
 
 type priorityContextInferrer struct {
@@ -89,6 +91,10 @@ func (s *priorityContextInferrer) inferFromConditions(conditions []string) (infe
 
 func (s *priorityContextInferrer) inferFromStatements(statements []string) (inferredContext string, err error) {
 	return s.infer(statements, s.getStatementHints)
+}
+
+func (s *priorityContextInferrer) inferFromValueExpressions(expressions []string) (inferredContext string, err error) {
+	return s.infer(expressions, s.getValueExpressionHints)
 }
 
 // hinterFunc is used by the infer function to generate the hints (paths, functions, enums, etc.) for the given OTTL.
@@ -229,6 +235,20 @@ func (s *priorityContextInferrer) sortContextCandidates(candidates []string) {
 // select a context in which the function/enum are supported.
 func (s *priorityContextInferrer) getConditionHints(condition string) ([]path, map[string]struct{}, map[enumSymbol]struct{}, error) {
 	parsed, err := parseCondition(condition)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	visitor := newGrammarContextInferrerVisitor()
+	parsed.accept(&visitor)
+	return visitor.paths, visitor.functions, visitor.enumsSymbols, nil
+}
+
+// getValueExpressionHints extracts all path, function (converter) names, and enumSymbol
+// from the given value expression. These values are used by the context inferrer as hints to
+// select a context in which the function/enum are supported.
+func (s *priorityContextInferrer) getValueExpressionHints(expr string) ([]path, map[string]struct{}, map[enumSymbol]struct{}, error) {
+	parsed, err := parseValueExpression(expr)
 	if err != nil {
 		return nil, nil, nil, err
 	}
