@@ -8,3 +8,8 @@ status:
   codeowners:
     active: [atoulme]
     seeking_new: true
+
+tests:
+  config:
+    # Bind to an ephemeral port to avoid conflicting with other services
+    endpoint: localhost:0
