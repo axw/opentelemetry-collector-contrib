@@ -59,6 +59,7 @@ func (e *textExtension) Start(_ context.Context, _ component.Host) error {
 		decoder:               enc.NewDecoder(),
 		marshalingSeparator:   e.config.MarshalingSeparator,
 		unmarshalingSeparator: unmarshallingSeparator,
+		bufferSize:            e.config.BufferSize,
 	}
 
 	return err

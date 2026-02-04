@@ -22,15 +22,8 @@ type ScannerHelper struct {
 	scanner     *bufio.Scanner
 }
 
-func NewScannerHelper(reader io.Reader, opts ...encoding.DecoderOptions) *ScannerHelper {
+func NewScannerHelper(scanner *bufio.Scanner, opts ...encoding.DecoderOptions) *ScannerHelper {
 	batchHelper := NewBatchHelper(opts...)
-
-	scanner := bufio.NewScanner(reader)
-	if batchHelper.options.StreamReaderBuffer > 0 {
-		bufSize := batchHelper.options.StreamReaderBuffer
-		scanner.Buffer(make([]byte, bufSize), bufSize)
-	}
-
 	return &ScannerHelper{
 		batchHelper: batchHelper,
 		scanner:     scanner,

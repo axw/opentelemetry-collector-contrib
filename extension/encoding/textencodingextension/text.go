@@ -25,6 +25,7 @@ type textLogCodec struct {
 	decoder               *txt.Decoder
 	marshalingSeparator   string
 	unmarshalingSeparator *regexp.Regexp
+	bufferSize            int
 }
 
 func (r *textLogCodec) UnmarshalLogs(buf []byte) (plog.Logs, error) {
@@ -43,6 +44,7 @@ func (r *textLogCodec) UnmarshalLogs(buf []byte) (plog.Logs, error) {
 
 func (r *textLogCodec) NewLogsDecoder(reader io.Reader, options ...encoding.DecoderOptions) (encoding.LogsDecoder, error) {
 	s := bufio.NewScanner(reader)
+	s.Buffer(make([]byte, r.bufferSize), r.bufferSize)
 	if r.unmarshalingSeparator != nil {
 		s.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 			if atEOF && len(data) == 0 {

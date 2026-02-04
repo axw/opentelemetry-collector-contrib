@@ -12,6 +12,7 @@ type Config struct {
 	Encoding              string `mapstructure:"encoding"`
 	MarshalingSeparator   string `mapstructure:"marshaling_separator"`
 	UnmarshalingSeparator string `mapstructure:"unmarshaling_separator"`
+	BufferSize            int    `mapstructure:"buffer_size"`
 	// prevent unkeyed literal initialization
 	_ struct{}
 }

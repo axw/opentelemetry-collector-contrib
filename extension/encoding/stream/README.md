@@ -76,15 +76,6 @@ helper := stream.NewScannerHelper(reader,
 )
 ```
 
-### Custom Buffer Size
-
-```go
-// Use a larger buffer size to reduce iteration overhead
-helper := stream.NewScannerHelper(reader,
-    encoding.WithStreamReaderBuffer(1024 * 1024), // 1MB buffer
-)
-```
-
 ### Using BatchHelper Standalone
 
 For custom scanning logic where you need full control over reading records, you can use `BatchHelper` directly:

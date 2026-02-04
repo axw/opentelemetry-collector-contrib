@@ -28,5 +28,10 @@ func createExtension(_ context.Context, _ extension.Settings, config component.C
 }
 
 func createDefaultConfig() component.Config {
-	return &Config{Encoding: "utf8", MarshalingSeparator: "\n", UnmarshalingSeparator: "\r?\n"}
+	return &Config{
+		Encoding:              "utf8",
+		MarshalingSeparator:   "\n",
+		UnmarshalingSeparator: "\r?\n",
+		BufferSize:            64 * 1024,
+	}
 }

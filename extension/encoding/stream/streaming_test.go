@@ -4,6 +4,7 @@
 package stream // import "github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding"
 
 import (
+	"bufio"
 	"io"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 
 func TestStreamScannerHelper_ScanString(t *testing.T) {
 	input := "line1\nline2\nline3\n"
-	helper := NewScannerHelper(strings.NewReader(input))
+	helper := NewScannerHelper(bufio.NewScanner(strings.NewReader(input)))
 
 	line, flush, err := helper.ScanString()
 	require.NoError(t, err)
@@ -40,7 +41,7 @@ func TestStreamScannerHelper_ScanString(t *testing.T) {
 
 func TestStreamScannerHelper_ScanBytes(t *testing.T) {
 	input := "line1\nline2\nline3\n"
-	helper := NewScannerHelper(strings.NewReader(input))
+	helper := NewScannerHelper(bufio.NewScanner(strings.NewReader(input)))
 
 	bytes, flush, err := helper.ScanBytes()
 	require.NoError(t, err)
@@ -64,7 +65,7 @@ func TestStreamScannerHelper_ScanBytes(t *testing.T) {
 
 func TestStreamScannerHelper_FlushByItems(t *testing.T) {
 	input := "a\nb\nc\n"
-	helper := NewScannerHelper(strings.NewReader(input), encoding.WithFlushItems(2))
+	helper := NewScannerHelper(bufio.NewScanner(strings.NewReader(input)), encoding.WithFlushItems(2))
 
 	_, flush, err := helper.ScanString()
 	require.NoError(t, err)
@@ -83,7 +84,7 @@ func TestStreamScannerHelper_FlushByBytes(t *testing.T) {
 	input := "aaa\nbbb\n"
 
 	// Each line is 3 bytes + 1 newline = 4 bytes
-	helper := NewScannerHelper(strings.NewReader(input), encoding.WithFlushBytes(4))
+	helper := NewScannerHelper(bufio.NewScanner(strings.NewReader(input)), encoding.WithFlushBytes(4))
 
 	_, flush, err := helper.ScanString()
 	require.NoError(t, err)
