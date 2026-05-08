@@ -14,6 +14,7 @@ import (
 	"github.com/klauspost/compress/gzip"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/extension"
+	"go.opentelemetry.io/collector/extension/extensioncapabilities"
 	"go.opentelemetry.io/collector/featuregate"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
@@ -40,6 +41,7 @@ const (
 var (
 	_ encoding.LogsUnmarshalerExtension = (*encodingExtension)(nil)
 	_ encoding.LogsDecoderExtension     = (*encodingExtension)(nil)
+	_ extensioncapabilities.Dependent   = (*encodingExtension)(nil)
 )
 
 var (
@@ -66,6 +68,7 @@ type encodingExtension struct {
 	cfg *Config
 
 	unmarshaler             awsunmarshaler.AWSUnmarshaler
+	subscriptionFilter      *subscriptionfilter.SubscriptionFilterUnmarshaler
 	format                  string
 	gzipPool                sync.Pool
 	logger                  *zap.Logger
@@ -81,10 +84,13 @@ func newExtension(cfg *Config, settings extension.Settings) (*encodingExtension,
 				zap.String("new_format", constants.FormatCloudWatchLogsSubscriptionFilter),
 			)
 		}
+		sub := subscriptionfilter.NewSubscriptionFilterUnmarshaler(settings.BuildInfo)
 		return &encodingExtension{
-			unmarshaler: subscriptionfilter.NewSubscriptionFilterUnmarshaler(settings.BuildInfo),
-			format:      constants.FormatCloudWatchLogsSubscriptionFilter,
-			logger:      settings.Logger,
+			cfg:                cfg,
+			unmarshaler:        sub,
+			subscriptionFilter: sub,
+			format:             constants.FormatCloudWatchLogsSubscriptionFilter,
+			logger:             settings.Logger,
 		}, nil
 	case constants.FormatVPCFlowLog, constants.FormatVPCFlowLogV1:
 		if cfg.Format == constants.FormatVPCFlowLogV1 {
@@ -176,8 +182,49 @@ func newExtension(cfg *Config, settings extension.Settings) (*encodingExtension,
 	}
 }
 
-func (*encodingExtension) Start(_ context.Context, _ component.Host) error {
+func (e *encodingExtension) Start(_ context.Context, host component.Host) error {
+	if e.subscriptionFilter == nil || e.cfg == nil || len(e.cfg.CloudWatchConfig.SubEncodings) == 0 {
+		return nil
+	}
+	exts := host.GetExtensions()
+	routes := make([]subscriptionfilter.Route, 0, len(e.cfg.CloudWatchConfig.SubEncodings))
+	for i, rule := range e.cfg.CloudWatchConfig.SubEncodings {
+		if rule.Encoding == nil {
+			return fmt.Errorf("cloudwatch.sub_encodings[%d]: encoding is required", i)
+		}
+		ext, ok := exts[*rule.Encoding]
+		if !ok {
+			return fmt.Errorf("cloudwatch.sub_encodings[%d]: encoding %q not found", i, rule.Encoding)
+		}
+		unmarshaler, ok := ext.(plog.Unmarshaler)
+		if !ok {
+			return fmt.Errorf("cloudwatch.sub_encodings[%d]: encoding %q does not implement plog.Unmarshaler", i, rule.Encoding)
+		}
+		routes = append(routes, subscriptionfilter.Route{
+			LogGroup:  rule.LogGroup,
+			LogStream: rule.LogStream,
+			Encoding:  unmarshaler,
+			Payload:   rule.Payload,
+		})
+	}
+	e.subscriptionFilter.SetRoutes(routes)
 	return nil
+}
+
+// Dependencies returns the IDs of every encoding extension referenced by the
+// CloudWatch routing config so the collector starts them before this
+// extension.
+func (e *encodingExtension) Dependencies() []component.ID {
+	if e.cfg == nil || len(e.cfg.CloudWatchConfig.SubEncodings) == 0 {
+		return nil
+	}
+	deps := make([]component.ID, 0, len(e.cfg.CloudWatchConfig.SubEncodings))
+	for _, rule := range e.cfg.CloudWatchConfig.SubEncodings {
+		if rule.Encoding != nil {
+			deps = append(deps, *rule.Encoding)
+		}
+	}
+	return deps
 }
 
 func (*encodingExtension) Shutdown(_ context.Context) error {

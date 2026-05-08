@@ -5,6 +5,7 @@ package awslogsencodingextension
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/extension/extensiontest"
 	"go.opentelemetry.io/collector/featuregate"
+	"go.opentelemetry.io/collector/pdata/plog"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/awslogsencodingextension/internal/constants"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding/awslogsencodingextension/internal/metadata"
@@ -187,6 +189,94 @@ func TestGetReaderFromFormat(t *testing.T) {
 			require.NotNil(t, reader)
 		})
 	}
+}
+
+type fakeHost struct {
+	exts map[component.ID]component.Component
+}
+
+func (h *fakeHost) GetExtensions() map[component.ID]component.Component {
+	return h.exts
+}
+
+type stubLogsUnmarshaler struct{}
+
+func (stubLogsUnmarshaler) UnmarshalLogs([]byte) (plog.Logs, error) {
+	return plog.NewLogs(), nil
+}
+
+type stubExtension struct {
+	stubLogsUnmarshaler
+}
+
+func (stubExtension) Start(context.Context, component.Host) error { return nil }
+func (stubExtension) Shutdown(context.Context) error              { return nil }
+
+func newStubExt() component.Component { return stubExtension{} }
+
+func TestStart_CloudWatchRouting_ResolvesEncoding(t *testing.T) {
+	jsonID := component.MustNewIDWithName("jsonlogencoding", "in-cw")
+	cfg := createDefaultConfig().(*Config)
+	cfg.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+	cfg.CloudWatchConfig.SubEncodings = []SubEncoding{{
+		LogGroup: "/aws/json/*",
+		Encoding: &jsonID,
+	}}
+
+	e, err := newExtension(cfg, extensiontest.NewNopSettings(extensiontest.NopType))
+	require.NoError(t, err)
+
+	host := &fakeHost{exts: map[component.ID]component.Component{jsonID: newStubExt()}}
+	require.NoError(t, e.Start(t.Context(), host))
+	require.Equal(t, []component.ID{jsonID}, e.Dependencies())
+}
+
+func TestStart_CloudWatchRouting_UnknownEncodingErrors(t *testing.T) {
+	missingID := component.MustNewIDWithName("jsonlogencoding", "missing")
+	cfg := createDefaultConfig().(*Config)
+	cfg.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+	cfg.CloudWatchConfig.SubEncodings = []SubEncoding{{
+		LogGroup: "*",
+		Encoding: &missingID,
+	}}
+
+	e, err := newExtension(cfg, extensiontest.NewNopSettings(extensiontest.NopType))
+	require.NoError(t, err)
+
+	host := &fakeHost{exts: map[component.ID]component.Component{}}
+	err = e.Start(t.Context(), host)
+	require.ErrorContains(t, err, "not found")
+}
+
+func TestStart_CloudWatchRouting_WrongTypeErrors(t *testing.T) {
+	id := component.MustNewIDWithName("notunmarshaler", "x")
+	cfg := createDefaultConfig().(*Config)
+	cfg.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+	cfg.CloudWatchConfig.SubEncodings = []SubEncoding{{
+		LogGroup: "*",
+		Encoding: &id,
+	}}
+
+	e, err := newExtension(cfg, extensiontest.NewNopSettings(extensiontest.NopType))
+	require.NoError(t, err)
+
+	// A component that is not a plog.Unmarshaler.
+	host := &fakeHost{exts: map[component.ID]component.Component{
+		id: nopComponent{},
+	}}
+	err = e.Start(t.Context(), host)
+	require.ErrorContains(t, err, "does not implement plog.Unmarshaler")
+}
+
+type nopComponent struct{}
+
+func (nopComponent) Start(context.Context, component.Host) error { return nil }
+func (nopComponent) Shutdown(context.Context) error              { return nil }
+
+func TestDependencies_NoRoutes(t *testing.T) {
+	e, err := newExtension(&Config{Format: constants.FormatCloudWatchLogsSubscriptionFilter}, extensiontest.NewNopSettings(extensiontest.NopType))
+	require.NoError(t, err)
+	require.Nil(t, e.Dependencies())
 }
 
 // readAndCompressLogFile reads the data inside it, compresses it

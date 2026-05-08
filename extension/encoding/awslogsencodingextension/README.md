@@ -41,6 +41,56 @@ receivers:
     encoding: awslogs_encoding/cloudwatch
 ```
 
+#### Routing CloudWatch Logs to another encoding
+
+When `format: cloudwatch` is configured, the `cloudwatch.sub_encodings` option
+routes CloudWatch payloads to another encoding extension based on the
+payload's `logGroup` and/or `logStream`. Rules are evaluated in order; the
+first match wins. Payloads with no matching rule are decoded as before
+(each event's `message` becomes the log body).
+
+Each rule has the following fields:
+
+| Field        | Description                                                                                                                                                                                                                                                                                                                                                                            |
+|--------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `log_group`  | Glob pattern (Go [`path.Match`](https://pkg.go.dev/path#Match) syntax) matched against `logGroup`. Empty matches anything.                                                                                                                                                                                                                                                             |
+| `log_stream` | Glob pattern matched against `logStream`. Empty matches anything.                                                                                                                                                                                                                                                                                                                       |
+| `encoding`   | The component ID of an encoding extension implementing `plog.Unmarshaler`. Required.                                                                                                                                                                                                                                                                                                   |
+| `payload`    | What to pass to the routed encoding: `message` (default) calls the routed extension once per event with the event's message bytes; `envelope` calls it once per CloudWatch record with the full record bytes. Use `envelope` for encodings that expect to iterate the CloudWatch envelope themselves (for example, `awslogsencoding` configured for `vpcflow` or `cloudtrail`). |
+
+In `message` mode, the routed extension's resulting log records are merged
+under CloudWatch resource attributes (`cloud.provider`, `cloud.account.id`,
+`aws.log.group.names`, `aws.log.stream.names`, and `cloud.region` when
+extracted fields are present) and any log record with a zero timestamp is
+back-filled with the CloudWatch event timestamp. In `envelope` mode the
+routed extension's output is preserved verbatim — it is the routed
+extension's responsibility to set resource attributes and timestamps.
+
+```yaml
+extensions:
+  json_encoding:
+    # ...
+
+  awslogs_encoding/vpcflow:
+    format: vpcflow
+  awslogs_encoding/cloudtrail:
+    format: cloudtrail
+
+  awslogs_encoding/cloudwatch:
+    format: cloudwatch
+    cloudwatch:
+      sub_encodings:
+        - log_group: "/aws/vpc/flow-logs/*"
+          encoding: awslogs_encoding/vpcflow
+          payload: envelope
+        - log_group: "/aws/cloudtrail/*"
+          encoding: awslogs_encoding/cloudtrail
+          payload: envelope
+        - log_group: "/myapp/json/*"
+          encoding: json_encoding
+          # payload defaults to "message"
+```
+
 Example for VPC flow logs:
 ```yaml
 extensions:

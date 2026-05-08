@@ -42,3 +42,13 @@ type resourceGroupKey struct {
 	logGroup  string
 	logStream string
 }
+
+// cloudwatchLogsHeader carries just the envelope fields needed to make
+// routing decisions. Decoding into this skips the (potentially large)
+// logEvents array.
+type cloudwatchLogsHeader struct {
+	Owner       string `json:"owner"`
+	LogGroup    string `json:"logGroup"`
+	LogStream   string `json:"logStream"`
+	MessageType string `json:"messageType"`
+}

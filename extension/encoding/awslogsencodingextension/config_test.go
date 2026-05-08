@@ -180,3 +180,96 @@ func TestLoadConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestSubEncodingValidation(t *testing.T) {
+	t.Parallel()
+
+	jsonID := component.MustNewIDWithName("jsonlogencoding", "in-cw")
+
+	tests := map[string]struct {
+		cfg         func() *Config
+		expectedErr string
+	}{
+		"sub_encodings_only_for_cloudwatch_format": {
+			cfg: func() *Config {
+				c := createDefaultConfig().(*Config)
+				c.Format = constants.FormatVPCFlowLog
+				c.CloudWatchConfig.SubEncodings = []SubEncoding{{
+					LogGroup: "*",
+					Encoding: &jsonID,
+				}}
+				return c
+			},
+			expectedErr: `cloudwatch.sub_encodings is only valid when format is "cloudwatch"`,
+		},
+		"missing_encoding": {
+			cfg: func() *Config {
+				c := createDefaultConfig().(*Config)
+				c.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+				c.CloudWatchConfig.SubEncodings = []SubEncoding{{LogGroup: "*"}}
+				return c
+			},
+			expectedErr: "cloudwatch.sub_encodings[0]: encoding is required",
+		},
+		"unsupported_payload": {
+			cfg: func() *Config {
+				c := createDefaultConfig().(*Config)
+				c.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+				c.CloudWatchConfig.SubEncodings = []SubEncoding{{
+					LogGroup: "*",
+					Encoding: &jsonID,
+					Payload:  "weird",
+				}}
+				return c
+			},
+			expectedErr: `cloudwatch.sub_encodings[0]: unsupported payload "weird"`,
+		},
+		"valid_message_payload": {
+			cfg: func() *Config {
+				c := createDefaultConfig().(*Config)
+				c.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+				c.CloudWatchConfig.SubEncodings = []SubEncoding{{
+					LogGroup: "/aws/json/*",
+					Encoding: &jsonID,
+					Payload:  SubEncodingPayloadMessage,
+				}}
+				return c
+			},
+		},
+		"valid_envelope_payload": {
+			cfg: func() *Config {
+				c := createDefaultConfig().(*Config)
+				c.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+				c.CloudWatchConfig.SubEncodings = []SubEncoding{{
+					LogGroup: "/aws/vpc/*",
+					Encoding: &jsonID,
+					Payload:  SubEncodingPayloadEnvelope,
+				}}
+				return c
+			},
+		},
+		"empty_payload_defaults_message": {
+			cfg: func() *Config {
+				c := createDefaultConfig().(*Config)
+				c.Format = constants.FormatCloudWatchLogsSubscriptionFilter
+				c.CloudWatchConfig.SubEncodings = []SubEncoding{{
+					LogGroup: "*",
+					Encoding: &jsonID,
+				}}
+				return c
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := xconfmap.Validate(tt.cfg())
+			if tt.expectedErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErr)
+		})
+	}
+}
